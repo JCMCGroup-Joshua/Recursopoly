@@ -189,8 +189,10 @@
 
         li.appendChild(el("span", "name", player.name + (isMe(player.name) ? " (you)" : "")));
         if (player.name === state.host) li.appendChild(el("span", "tag tag-host", "host"));
-        if (player.left) li.appendChild(el("span", "tag", "left"));
+        if (player.bankrupt) li.appendChild(el("span", "tag tag-bankrupt", "bankrupt"));
+        else if (player.left) li.appendChild(el("span", "tag", "left"));
         else if (!player.connected) li.appendChild(el("span", "tag", "offline"));
+        if (player.in_jail) li.appendChild(el("span", "tag tag-jail", "in jail"));
         if (showMoney) {
             var money = el("span", "money", formatMoney(player.money));
             if (player.money < 0) money.classList.add("is-negative");
@@ -274,25 +276,44 @@
     var boardBuiltFor = null;  // board signature, so we only rebuild on change
     var squareNodes = [];      // token holder per square index
     var squareEls = [];        // whole square element per square index
+    var buildingNodes = [];    // houses / hotel holder per square index
+    var latestState = null;    // most recent game_state, for dialogs
 
     function groupColour(sq) {
         var group = sq.attributes && sq.attributes.group;
         return group ? "var(--group-" + group + ", #999)" : null;
     }
 
-    // Tooltip text: name, type, price, rent and owner.
-    function squareTitle(sq) {
+    function hotelLevel(state) { return (state && state.rules && state.rules.hotel_level) || 5; }
+
+    function buildingText(sq, state) {
+        var a = sq.attributes || {};
+        if (!a.houses) return "";
+        if (a.houses >= hotelLevel(state)) return "Hotel";
+        return a.houses + (a.houses === 1 ? " house" : " houses");
+    }
+
+    // Tooltip text: name, type, price, rent, buildings and owner.
+    function squareTitle(sq, state) {
         var a = sq.attributes || {};
         var parts = [sq.name + " (" + sq.type.replace(/_/g, " ") + ")"];
         if (a.price) parts.push("Price " + formatMoney(a.price));
         if (sq.type === "property" && a.rent) parts.push("Rent " + formatMoney(a.rent));
+        if (sq.type === "property" && a.house_rents) {
+            parts.push("With houses: " + String(a.house_rents).split("/").map(function (r) {
+                return formatMoney(r);
+            }).join(", ") + " (last is a hotel)");
+            if (a.house_cost) parts.push("Houses cost " + formatMoney(a.house_cost) + " each");
+        }
         if (sq.type === "station" && a.rent) parts.push("Rent from " + formatMoney(a.rent));
         if (sq.type === "utility" && a.dice_multiplier) {
-            parts.push("Rent " + a.dice_multiplier + "\u00d7 dice (" +
-                (a.full_set_dice_multiplier || a.dice_multiplier) + "\u00d7 with all utilities)");
+            parts.push("Rent " + a.dice_multiplier + "× dice (" +
+                (a.full_set_dice_multiplier || a.dice_multiplier) + "× with all utilities)");
         }
         if (sq.type === "tax" && a.amount) parts.push("Pay " + formatMoney(a.amount));
         if (a.owner) parts.push("Owned by " + a.owner);
+        if (a.houses) parts.push(buildingText(sq, state));
+        if (a.mortgaged) parts.push("Mortgaged");
         return parts.join("\n");
     }
 
@@ -304,6 +325,7 @@
         container.style.setProperty("--cells", s + 1);
         squareNodes = [];
         squareEls = [];
+        buildingNodes = [];
 
         board.squares.forEach(function (sq) {
             var cell = squareCell(sq.index, n);
@@ -311,9 +333,13 @@
             if (sq.index % s === 0) node.classList.add("corner");
             node.style.gridRow = cell.row;
             node.style.gridColumn = cell.col;
+
             if (groupColour(sq) && sq.type === "property") {
                 var band = el("div", "band");
                 band.style.background = groupColour(sq);
+                var buildings = el("div", "buildings");
+                band.appendChild(buildings);
+                buildingNodes[sq.index] = buildings;
                 node.appendChild(band);
             }
             node.appendChild(el("div", "sq-name", sq.name));
@@ -330,42 +356,70 @@
             squareEls[sq.index] = node;
         });
 
-        // The centre: in Phase 4 the next board inward is drawn here.
+        // The centre shows the last card drawn; in Phase 4 the next board
+        // inward is drawn here.
         var centre = el("div", "board-centre");
         centre.style.gridRow = "2 / " + (s + 1);
         centre.style.gridColumn = "2 / " + (s + 1);
         centre.appendChild(el("div", "centre-logo", "Recursopoly"));
+        var card = el("div", "drawn-card");
+        card.id = "drawn-card";
+        card.hidden = true;
+        centre.appendChild(card);
         container.appendChild(centre);
     }
 
-    function renderTokens(state, boardId) {
-        squareNodes.forEach(function (node) { node.replaceChildren(); });
-        state.players.forEach(function (p) {
-            if (p.position.board_id !== boardId || p.left) return;
-            var holder = squareNodes[p.position.index];
-            if (!holder) return;
-            var token = el("span", "token", p.name.charAt(0).toUpperCase());
-            token.style.background = p.colour;
-            token.title = p.name;
-            if (state.current_player === p.name) token.classList.add("is-current");
-            if (!p.connected) token.classList.add("is-offline");
-            holder.appendChild(token);
-        });
-    }
-
-    // Outline owned squares in their owner's colour.
+    // Owner outlines, buildings and mortgages on each square.
     function renderOwnership(state, board) {
         var colours = {};
         state.players.forEach(function (p) { colours[p.name] = p.colour; });
         board.squares.forEach(function (sq) {
             var node = squareEls[sq.index];
             if (!node) return;
-            var owner = sq.attributes && sq.attributes.owner;
-            node.classList.toggle("owned", !!owner);
-            if (owner) node.style.setProperty("--owner", colours[owner] || "#666");
+            var a = sq.attributes || {};
+            node.classList.toggle("owned", !!a.owner);
+            node.classList.toggle("mortgaged", !!a.mortgaged);
+            if (a.owner) node.style.setProperty("--owner", colours[a.owner] || "#666");
             else node.style.removeProperty("--owner");
-            node.title = squareTitle(sq);
+            node.title = squareTitle(sq, state);
+
+            var holder = buildingNodes[sq.index];
+            if (holder) {
+                holder.replaceChildren();
+                if (a.houses >= hotelLevel(state)) holder.appendChild(el("span", "hotel"));
+                else for (var i = 0; i < (a.houses || 0); i++) holder.appendChild(el("span", "house"));
+            }
         });
+    }
+
+    function renderTokens(state, boardId) {
+        squareNodes.forEach(function (node) { node.replaceChildren(); });
+        state.players.forEach(function (p) {
+            if (p.position.board_id !== boardId || p.left || p.bankrupt) return;
+            var holder = squareNodes[p.position.index];
+            if (!holder) return;
+            var token = el("span", "token", p.name.charAt(0).toUpperCase());
+            token.style.background = p.colour;
+            token.title = p.name + (p.in_jail ? " (in jail)" : "");
+            if (state.current_player === p.name) token.classList.add("is-current");
+            if (!p.connected) token.classList.add("is-offline");
+            if (p.in_jail) token.classList.add("is-jailed");
+            holder.appendChild(token);
+        });
+    }
+
+    function renderCard(state) {
+        var box = $("drawn-card");
+        if (!box) return;
+        var card = state.last_card;
+        box.hidden = !card;
+        if (!card) return;
+        box.className = "drawn-card deck-" + card.deck;
+        box.replaceChildren(
+            el("div", "drawn-card-deck", card.label),
+            el("div", "drawn-card-text", card.text),
+            el("div", "drawn-card-player", "drawn by " + card.player)
+        );
     }
 
     function renderDice(state) {
@@ -381,37 +435,84 @@
             roll.player + ": " + roll.total + (roll.doubles ? " (doubles!)" : "")));
     }
 
+    function myPlayer(state) {
+        var found = null;
+        state.players.forEach(function (p) { if (isMe(p.name)) found = p; });
+        return found;
+    }
+
     function renderTurn(state) {
         var indicator = $("turn-indicator");
+        var self = myPlayer(state);
         var myTurn = state.status === "in_progress" && isMe(state.current_player);
+        var decision = state.status === "in_progress" && state.turn_state === "awaiting_decision"
+            ? state.pending_decision : null;
         indicator.classList.toggle("is-you", myTurn);
-        var deciding = state.status === "in_progress" && state.turn_state === "awaiting_decision" &&
-            state.pending_decision;
-        if (state.status === "ended") indicator.textContent = "Game over";
-        else if (myTurn && deciding) indicator.textContent = "Your turn! Make your choice.";
-        else if (myTurn) indicator.textContent = "Your turn! Roll the dice.";
-        else if (deciding) {
-            indicator.textContent = state.current_player + " is deciding whether to buy " +
-                state.pending_decision.square;
-        }
-        else if (state.current_player) indicator.textContent = state.current_player + "'s turn";
-        else indicator.textContent = "Waiting for players\u2026";
 
-        $("roll-btn").disabled = !(myTurn && state.turn_state === "waiting_to_roll");
-        renderDecision(state, myTurn && deciding);
+        if (state.status === "ended") {
+            indicator.textContent = state.winner ? state.winner + " wins!" : "Game over";
+        } else if (self && self.bankrupt) {
+            indicator.textContent = "You are bankrupt. You can keep watching.";
+        } else if (myTurn && decision && decision.type === "debt") {
+            indicator.textContent = "You owe money! Raise it or declare bankruptcy.";
+        } else if (myTurn && decision) {
+            indicator.textContent = "Your turn! Make your choice.";
+        } else if (myTurn && self.in_jail) {
+            indicator.textContent = "Your turn. You're in jail.";
+        } else if (myTurn) {
+            indicator.textContent = "Your turn! Roll the dice.";
+        } else if (decision && decision.type === "buy") {
+            indicator.textContent = state.current_player + " is deciding whether to buy " + decision.square;
+        } else if (decision && decision.type === "debt") {
+            indicator.textContent = state.current_player + " owes " + formatMoney(decision.amount) +
+                " and must raise money";
+        } else if (state.current_player) {
+            indicator.textContent = state.current_player + "'s turn";
+        } else {
+            indicator.textContent = "Waiting for players…";
+        }
+
+        var canRoll = myTurn && state.turn_state === "waiting_to_roll";
+        $("roll-btn").disabled = !canRoll;
+        $("roll-btn").textContent = myTurn && self.in_jail ? "Roll for doubles" : "Roll dice";
+
+        renderJail(state, self, canRoll && self.in_jail);
+        renderBuy(state, self, myTurn && decision && decision.type === "buy");
+        renderDebt(state, self, myTurn && decision && decision.type === "debt");
+    }
+
+    // Pay the fine / use a card, shown before a jailed player rolls.
+    function renderJail(state, self, show) {
+        $("jail-actions").hidden = !show;
+        if (!show) return;
+        var fine = state.rules.jail_fine;
+        $("jail-text").textContent = "In jail: roll doubles to get out (try " +
+            (self.jail_turns + 1) + " of " + state.rules.max_jail_turns + "), or:";
+        $("pay-fine-btn").textContent = "Pay " + formatMoney(fine) + " fine";
+        $("pay-fine-btn").disabled = self.money < fine;
+        $("use-card-btn").hidden = !self.jail_cards;
     }
 
     // Buy / Decline prompt for the active player.
-    function renderDecision(state, show) {
-        var box = $("decision");
-        box.hidden = !show;
+    function renderBuy(state, self, show) {
+        $("decision").hidden = !show;
         if (!show) return;
         var d = state.pending_decision;
-        var self = null;
-        state.players.forEach(function (p) { if (isMe(p.name)) self = p; });
         $("decision-text").textContent = "Buy " + d.square + " for " + formatMoney(d.price) + "?";
         $("buy-btn").disabled = !self || self.money < d.price;
         $("decline-btn").disabled = false;
+    }
+
+    // Settle a debt or go bankrupt.
+    function renderDebt(state, self, show) {
+        $("debt").hidden = !show;
+        if (!show) return;
+        var d = state.pending_decision;
+        $("debt-text").textContent = "You owe " + formatMoney(d.amount) + " to " +
+            d.creditors.join(" and ") + " but have " + formatMoney(self.money) +
+            ". Sell houses, mortgage or trade to raise money, then pay.";
+        $("pay-debt-btn").textContent = "Pay " + formatMoney(d.amount);
+        $("pay-debt-btn").disabled = self.money < d.amount;
     }
 
     function renderPlayers(state) {
@@ -424,12 +525,20 @@
                 .filter(function (pos) { return pos.board_id === 0; })
                 .map(function (pos) { return board.squares[pos.index]; })
                 .sort(function (a, b) { return a.index - b.index; });
+            var info = el("div", "player-info");
+            if (!p.bankrupt && !p.left) info.appendChild(el("span", null, "Worth " + formatMoney(p.net_worth)));
+            if (p.jail_cards) info.appendChild(el("span", null, "\u{1F511} " + p.jail_cards + " jail card" +
+                (p.jail_cards > 1 ? "s" : "")));
+            if (p.debt) info.appendChild(el("span", "is-negative", "Owes " + formatMoney(p.debt)));
+            li.appendChild(info);
             if (props.length) {
                 var ul = el("ul", "props");
                 props.forEach(function (sq) {
-                    var chip = el("li", "prop-chip", sq.name);
+                    var label = sq.name + (sq.attributes.houses ? " (" + buildingText(sq, state) + ")" : "");
+                    var chip = el("li", "prop-chip", label);
                     chip.style.setProperty("--chip", groupColour(sq) || "#777");
-                    chip.title = squareTitle(sq);
+                    if (sq.attributes.mortgaged) chip.classList.add("is-mortgaged");
+                    chip.title = squareTitle(sq, state);
                     ul.appendChild(chip);
                 });
                 li.appendChild(ul);
@@ -437,6 +546,160 @@
             list.appendChild(li);
         });
     }
+
+    // Build, sell, mortgage and unmortgage buttons for the viewer's squares.
+    // The server works out what's allowed; we only reflect it.
+    function renderMyProperties(state) {
+        var self = myPlayer(state);
+        var section = $("my-props-card");
+        var actions = (self && self.property_actions) || [];
+        section.hidden = !actions.length || state.status !== "in_progress";
+        if (section.hidden) return;
+        var list = $("my-props");
+        list.replaceChildren();
+        var myTurn = isMe(state.current_player);
+        $("my-props-hint").textContent = myTurn ? "" : "You can build, sell and mortgage on your turn.";
+
+        actions.slice().sort(function (a, b) { return a.index - b.index; }).forEach(function (act) {
+            var sq = state.boards[String(act.board_id)].squares[act.index];
+            var li = el("li", "my-prop");
+            li.style.setProperty("--chip", groupColour(sq) || "#777");
+            var label = el("div", "my-prop-name", sq.name);
+            var status = buildingText(sq, state) || (sq.attributes.mortgaged ? "Mortgaged" : "");
+            if (status) label.appendChild(el("span", "my-prop-status", status));
+            li.appendChild(label);
+
+            var buttons = el("div", "my-prop-actions");
+            function add(text, event, enabled) {
+                var b = el("button", "btn btn-small", text);
+                b.type = "button";
+                b.disabled = !enabled;
+                b.addEventListener("click", function () {
+                    b.disabled = true;
+                    socket.emit(event, { board_id: act.board_id, index: act.index });
+                });
+                buttons.appendChild(b);
+            }
+            if (sq.type === "property" && sq.attributes.house_cost) {
+                add("Build " + formatMoney(act.build_cost), "build_house", act.can_build);
+                add("Sell +" + formatMoney(act.sell_value), "sell_house", act.can_sell);
+            }
+            if (sq.attributes.mortgaged) {
+                add("Unmortgage " + formatMoney(act.unmortgage_cost), "unmortgage", act.can_unmortgage);
+            } else {
+                add("Mortgage +" + formatMoney(act.mortgage_value), "mortgage", act.can_mortgage);
+            }
+            li.appendChild(buttons);
+            list.appendChild(li);
+        });
+    }
+
+    // Open trade offers, with Accept / Reject / Cancel for those involved.
+    function renderTrades(state) {
+        var self = myPlayer(state);
+        var inGame = self && !self.bankrupt && !self.left && state.status === "in_progress";
+        $("trades-card").hidden = state.status !== "in_progress";
+        $("propose-trade-btn").hidden = !inGame;
+        var list = $("trades");
+        list.replaceChildren();
+        if (!state.trades.length) {
+            list.appendChild(el("li", "muted", "No open trade offers."));
+            return;
+        }
+        state.trades.forEach(function (t) {
+            var li = el("li", "trade");
+            li.appendChild(el("div", null, t.summary));
+            var buttons = el("div", "trade-actions");
+            function add(text, cls, event, payload) {
+                var b = el("button", "btn btn-small " + cls, text);
+                b.type = "button";
+                b.addEventListener("click", function () { b.disabled = true; socket.emit(event, payload); });
+                buttons.appendChild(b);
+            }
+            if (isMe(t.to)) {
+                add("Accept", "btn-primary", "respond_trade", { trade_id: t.id, accept: true });
+                add("Reject", "", "respond_trade", { trade_id: t.id, accept: false });
+            } else if (isMe(t.from)) {
+                add("Withdraw", "", "cancel_trade", { trade_id: t.id });
+            }
+            if (buttons.children.length) li.appendChild(buttons);
+            list.appendChild(li);
+        });
+    }
+
+    // ---- Trade dialog ------------------------------------------------------
+
+    function tradeCheckboxes(container, player, state) {
+        container.replaceChildren();
+        var tradeable = (player && player.property_actions || []).filter(function (a) { return a.tradeable; });
+        if (!tradeable.length) {
+            container.appendChild(el("p", "muted", "No tradeable properties."));
+            return;
+        }
+        tradeable.forEach(function (act) {
+            var sq = state.boards[String(act.board_id)].squares[act.index];
+            var label = el("label", "trade-option");
+            var box = el("input");
+            box.type = "checkbox";
+            box.value = act.board_id + ":" + act.index;
+            label.appendChild(box);
+            var chip = el("span", "prop-chip", sq.name + (sq.attributes.mortgaged ? " (mortgaged)" : ""));
+            chip.style.setProperty("--chip", groupColour(sq) || "#777");
+            label.appendChild(chip);
+            container.appendChild(label);
+        });
+    }
+
+    function checkedSquares(container) {
+        return Array.prototype.map.call(container.querySelectorAll("input:checked"), function (box) {
+            return box.value.split(":").map(Number);
+        });
+    }
+
+    function fillTradePartner() {
+        var state = latestState;
+        var partner = null;
+        state.players.forEach(function (p) { if (p.name === $("trade-to").value) partner = p; });
+        $("trade-get-label").textContent = "You get from " + (partner ? partner.name : "them");
+        tradeCheckboxes($("trade-get-squares"), partner, state);
+    }
+
+    function openTradeDialog() {
+        var state = latestState;
+        var select = $("trade-to");
+        select.replaceChildren();
+        state.players.forEach(function (p) {
+            if (isMe(p.name) || p.bankrupt || p.left) return;
+            var opt = el("option", null, p.name);
+            opt.value = p.name;
+            select.appendChild(opt);
+        });
+        if (!select.options.length) { showError("There's nobody to trade with."); return; }
+        tradeCheckboxes($("trade-give-squares"), myPlayer(state), state);
+        $("trade-give-money").value = 0;
+        $("trade-get-money").value = 0;
+        fillTradePartner();
+        $("trade-dialog").showModal();
+    }
+
+    function initTrades() {
+        $("propose-trade-btn").addEventListener("click", openTradeDialog);
+        $("trade-to").addEventListener("change", fillTradePartner);
+        $("trade-cancel-btn").addEventListener("click", function () { $("trade-dialog").close(); });
+        $("trade-form").addEventListener("submit", function (ev) {
+            ev.preventDefault();
+            socket.emit("propose_trade", {
+                to: $("trade-to").value,
+                give_money: Number($("trade-give-money").value) || 0,
+                give_squares: checkedSquares($("trade-give-squares")),
+                get_money: Number($("trade-get-money").value) || 0,
+                get_squares: checkedSquares($("trade-get-squares"))
+            });
+            $("trade-dialog").close();
+        });
+    }
+
+    // ---- Log and game over -------------------------------------------------
 
     function renderLog(state) {
         var list = $("event-log");
@@ -450,12 +713,14 @@
     function renderGameOver(state) {
         var overlay = $("game-over");
         if (state.status !== "ended") { overlay.hidden = true; return; }
+        $("winner").textContent = state.winner ? state.winner + " wins!" : "Game over";
         var list = $("final-standings");
         list.replaceChildren();
-        var byName = {};
-        state.players.forEach(function (p) { byName[p.name] = p; });
-        (state.standings || []).forEach(function (name) {
-            list.appendChild(el("li", null, name + " — " + formatMoney(byName[name].money)));
+        (state.standings || []).forEach(function (row) {
+            var li = el("li", null, row.name + " — net worth " + formatMoney(row.net_worth));
+            if (row.bankrupt) li.appendChild(el("span", "tag", "bankrupt"));
+            else if (row.left) li.appendChild(el("span", "tag", "left"));
+            list.appendChild(li);
         });
         overlay.hidden = false;
         $("end-btn").hidden = true;
@@ -468,18 +733,25 @@
             socket.emit("roll_dice");
         });
 
-        ["buy", "decline"].forEach(function (choice) {
-            $(choice + "-btn").addEventListener("click", function () {
-                $("buy-btn").disabled = true;
-                $("decline-btn").disabled = true;
-                socket.emit("decide", { choice: choice });
-            });
+        function decide(choice, buttons) {
+            buttons.forEach(function (id) { $(id).disabled = true; });
+            socket.emit("decide", { choice: choice });
+        }
+        $("buy-btn").addEventListener("click", function () { decide("buy", ["buy-btn", "decline-btn"]); });
+        $("decline-btn").addEventListener("click", function () { decide("decline", ["buy-btn", "decline-btn"]); });
+        $("pay-debt-btn").addEventListener("click", function () { decide("pay", ["pay-debt-btn"]); });
+        $("bankrupt-btn").addEventListener("click", function () {
+            if (confirm("Declare bankruptcy? You will be out of the game.")) decide("bankrupt", ["bankrupt-btn"]);
         });
+        $("pay-fine-btn").addEventListener("click", function () { socket.emit("pay_jail_fine"); });
+        $("use-card-btn").addEventListener("click", function () { socket.emit("use_jail_card"); });
+        initTrades();
 
         initSeat(function (state) {
             if (state.status === "lobby") { goTo("lobby", state.join_code); return; }
+            latestState = state;
 
-            // Phase 1 shows only the outer board (id 0); Phase 4 renders all.
+            // Phase 3 shows only the outer board (id 0); Phase 4 renders all.
             var board = state.boards["0"];
             var signature = board.size + ":" + board.name;
             if (boardBuiltFor !== signature) {
@@ -488,8 +760,11 @@
             }
             renderOwnership(state, board);
             renderTokens(state, 0);
+            renderCard(state);
             renderDice(state);
             renderTurn(state);
+            renderMyProperties(state);
+            renderTrades(state);
             renderPlayers(state);
             renderLog(state);
             $("end-btn").hidden = !isMe(state.host) || state.status !== "in_progress";

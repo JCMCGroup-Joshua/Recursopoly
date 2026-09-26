@@ -25,14 +25,40 @@
             <section class="card turn-card">
                 <div id="turn-indicator" class="turn-indicator">Connecting&hellip;</div>
                 <div id="dice" class="dice" aria-live="polite"></div>
+                <div id="jail-actions" class="panel panel-jail" hidden>
+                    <p id="jail-text"></p>
+                    <div class="panel-actions">
+                        <button type="button" class="btn" id="pay-fine-btn">Pay fine</button>
+                        <button type="button" class="btn" id="use-card-btn">Use Get Out of Jail Free card</button>
+                    </div>
+                </div>
                 <button type="button" class="btn btn-primary btn-roll" id="roll-btn" disabled>Roll dice</button>
-                <div id="decision" class="decision" hidden>
+                <div id="decision" class="panel" hidden>
                     <p id="decision-text"></p>
-                    <div class="decision-actions">
+                    <div class="panel-actions">
                         <button type="button" class="btn btn-primary" id="buy-btn">Buy</button>
                         <button type="button" class="btn" id="decline-btn">Decline</button>
                     </div>
                 </div>
+                <div id="debt" class="panel panel-debt" hidden>
+                    <p id="debt-text"></p>
+                    <div class="panel-actions">
+                        <button type="button" class="btn btn-primary" id="pay-debt-btn">Pay</button>
+                        <button type="button" class="btn btn-danger" id="bankrupt-btn">Declare bankruptcy</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card" id="my-props-card" hidden>
+                <h2>Your properties</h2>
+                <p id="my-props-hint" class="muted small"></p>
+                <ul id="my-props" class="my-props"></ul>
+            </section>
+
+            <section class="card" id="trades-card" hidden>
+                <h2>Trades</h2>
+                <ul id="trades" class="trades"></ul>
+                <button type="button" class="btn btn-small" id="propose-trade-btn">Propose a trade</button>
             </section>
 
             <section class="card">
@@ -54,11 +80,40 @@
 
     <div id="game-over" class="overlay" hidden>
         <div class="card overlay-card">
-            <h2>Game over</h2>
+            <h2 id="winner">Game over</h2>
+            <p class="muted">Final standings by net worth (money + property + buildings)</p>
             <ol id="final-standings" class="standings"></ol>
             <a class="btn btn-primary" href="{{ url_for('index') }}">Back to Recursopoly</a>
         </div>
     </div>
+
+    <dialog id="trade-dialog" class="trade-dialog">
+        <form id="trade-form">
+            <h2>Propose a trade</h2>
+            <label for="trade-to">Trade with</label>
+            <select id="trade-to"></select>
+
+            <div class="trade-columns">
+                <fieldset>
+                    <legend>You give</legend>
+                    <div id="trade-give-squares" class="trade-squares"></div>
+                    <label for="trade-give-money">Money (&pound;)</label>
+                    <input id="trade-give-money" type="number" min="0" step="1" value="0">
+                </fieldset>
+                <fieldset>
+                    <legend id="trade-get-label">You get</legend>
+                    <div id="trade-get-squares" class="trade-squares"></div>
+                    <label for="trade-get-money">Money (&pound;)</label>
+                    <input id="trade-get-money" type="number" min="0" step="1" value="0">
+                </fieldset>
+            </div>
+            <p class="muted small">Properties in a colour group with buildings can't be traded.</p>
+            <div class="panel-actions">
+                <button type="submit" class="btn btn-primary">Send offer</button>
+                <button type="button" class="btn" id="trade-cancel-btn">Cancel</button>
+            </div>
+        </form>
+    </dialog>
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="{{ url_for('static', filename='js/recursopoly.js') }}"></script>

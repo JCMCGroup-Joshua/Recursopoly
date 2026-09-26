@@ -209,18 +209,80 @@ body > .banner { margin: 0 16px 12px; }
     border-left: 5px solid var(--chip);
 }
 
-/* Buy / Decline prompt. */
-.decision {
+/* Prompts in the turn card: buy, debt, jail. */
+.panel {
     margin-top: 10px;
     padding: 10px;
     border-radius: 7px;
     background: #fff4c7;
     border: 1px solid var(--warn);
+    text-align: left;
 }
 
-.decision p { margin: 0 0 8px; font-weight: 700; }
-.decision-actions { display: flex; gap: 8px; }
-.decision-actions .btn { flex: 1; }
+.panel p { margin: 0 0 8px; font-weight: 700; }
+.panel-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.panel-actions .btn { flex: 1 1 auto; }
+.panel-debt { background: #fde3e1; border-color: #f3b3ad; }
+.panel-jail { background: #eceff1; border-color: #b0bec5; margin: 0 0 10px; }
+.small { font-size: 0.85rem; }
+
+/* Extra line under a player's name: net worth, jail cards, debts. */
+.player-info {
+    flex-basis: 100%;
+    margin-left: 24px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+.is-negative { color: var(--accent); font-weight: 700; }
+.tag-bankrupt { background: #333; color: #fff; }
+.tag-jail { background: #b0bec5; color: #263238; }
+.prop-chip.is-mortgaged { opacity: 0.55; text-decoration: line-through; }
+
+/* Your properties: build / sell / mortgage. */
+.my-props { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+
+.my-prop {
+    border-left: 5px solid var(--chip);
+    background: #f6f6f2;
+    border-radius: 6px;
+    padding: 6px 8px;
+}
+
+.my-prop-name { font-weight: 600; font-size: 0.9rem; }
+.my-prop-status { font-weight: normal; color: var(--muted); margin-left: 6px; font-size: 0.8rem; }
+.my-prop-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.my-prop-actions .btn { font-size: 0.75rem; padding: 3px 7px; }
+
+/* Trades. */
+.trades { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; font-size: 0.9rem; }
+.trade { background: #f6f6f2; border-radius: 6px; padding: 6px 8px; }
+.trade-actions { display: flex; gap: 6px; margin-top: 6px; }
+
+.trade-dialog {
+    border: none;
+    border-radius: var(--radius);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    width: min(640px, calc(100vw - 32px));
+    padding: 18px;
+}
+
+.trade-dialog::backdrop { background: rgba(20, 30, 25, 0.55); }
+.trade-dialog h2 { margin-top: 0; }
+.trade-dialog select { font: inherit; padding: 8px; border-radius: 7px; border: 1px solid #b9c2bd; }
+.trade-columns { display: grid; gap: 12px; margin: 12px 0; }
+
+@media (min-width: 560px) {
+    .trade-columns { grid-template-columns: 1fr 1fr; }
+}
+
+.trade-columns fieldset { border: 1px solid #d5dad7; border-radius: 7px; margin: 0; min-width: 0; }
+.trade-squares { display: grid; gap: 4px; margin-bottom: 8px; max-height: 220px; overflow-y: auto; }
+.trade-option { display: flex; align-items: center; gap: 6px; font-weight: normal; }
+.trade-option input { width: auto; }
 
 .tag {
     font-size: 0.72rem;
@@ -359,6 +421,26 @@ body > .banner { margin: 0 16px 12px; }
     line-height: 1.1;
 }
 
+/* Houses (green) and hotels (red) sit on the colour band. */
+.square .band { display: flex; align-items: center; justify-content: center; }
+.buildings { display: flex; gap: 1px; }
+.buildings .house, .buildings .hotel {
+    display: inline-block;
+    width: clamp(3px, 0.7vw, 7px);
+    height: clamp(3px, 0.7vw, 7px);
+    background: #1f9d45;
+    border: 1px solid #fff;
+}
+.buildings .hotel { width: clamp(8px, 1.6vw, 16px); background: #d32f2f; }
+
+/* Mortgaged squares are faded and striped. */
+.square.mortgaged {
+    background-image: repeating-linear-gradient(45deg, transparent 0 6px, rgba(0, 0, 0, 0.07) 6px 12px);
+}
+.square.mortgaged .sq-name { opacity: 0.6; }
+
+.token.is-jailed { outline: 2px dashed #263238; outline-offset: 1px; }
+
 /* Owned squares get a thick inner border in the owner's colour. */
 .square.owned { box-shadow: inset 0 0 0 3px var(--owner); }
 .square.owned .sq-price { color: var(--owner); font-weight: 800; }
@@ -402,6 +484,29 @@ body > .banner { margin: 0 16px 12px; }
     text-align: center;
 }
 
+.board-centre { position: relative; }
+
+/* The last Chance / Community Chest card, shown in the middle of the board. */
+.drawn-card {
+    position: absolute;
+    bottom: 8%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(60%, 260px);
+    background: #fff;
+    border-radius: 8px;
+    border: 2px solid #e07b00;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+    padding: 8px 10px;
+    font-size: clamp(0.6rem, 1.1vw, 0.9rem);
+    text-align: center;
+}
+.drawn-card.deck-community_chest { border-color: #0063a6; }
+.drawn-card-deck { font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #e07b00; }
+.deck-community_chest .drawn-card-deck { color: #0063a6; }
+.drawn-card-text { margin: 4px 0; }
+.drawn-card-player { color: var(--muted); font-size: 0.85em; }
+
 .board-centre .centre-logo {
     font-weight: 900;
     font-size: clamp(1rem, 4.5vw, 3rem);
@@ -429,3 +534,4 @@ body > .banner { margin: 0 16px 12px; }
 .overlay-card { width: min(420px, 100%); text-align: center; }
 .standings { text-align: left; padding-left: 1.4em; }
 .standings li { padding: 3px 0; }
+.standings li .tag { margin-left: 6px; }
