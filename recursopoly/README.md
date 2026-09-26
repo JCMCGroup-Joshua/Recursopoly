@@ -7,12 +7,17 @@ from the game's big idea: **boards within boards**. Later versions add
 smaller, pricier boards nested inside the outer one, linked by train
 stations.
 
-The game currently includes **Phase 1** (movement, turns and real-time
-multiplayer), **Phase 2** (properties, buying, rent and tax) and **Phase 3**
-(cards, jail, houses, mortgages, trading and bankruptcy). Everything
-runs on Flask and Flask-SocketIO. There is **no database**: settings and
-board layouts are plain `.txt` files, and scores are appended to a `.csv`
-file.
+The game currently includes:
+
+- **Phase 1:** movement, turns and real-time multiplayer
+- **Phase 2:** properties, buying, rent and tax
+- **Phase 3:** cards, jail, houses, mortgages, trading and bankruptcy
+- **Phase 4:** rule sets, custom property sets, stakeholder ownership and
+  the adult-themed **AMST** rule set
+
+Everything runs on Flask and Flask-SocketIO. There is **no database**:
+rule sets and boards are JSON files, server settings and card decks are
+plain `.txt` files, and scores are appended to a `.csv` file.
 
 ## Features (Phase 1)
 
@@ -56,15 +61,15 @@ file.
   the board.
 - **Jail.** You go to jail for landing on Go To Jail, drawing a Go to Jail
   card, or rolling three doubles in a row. On your turn you can:
-  - pay the fine (`jail_fine`, £50) and roll normally,
+  - pay the fine (`jail_fine`, £50 in Classic) and roll normally,
   - use a Get Out of Jail Free card, or
   - roll for doubles. Doubles free you (with no extra roll). After
     `max_jail_turns` (3) failed tries you must pay the fine and move.
 - **Houses and hotels.** Once you own a whole colour group you can build on
   your turn:
-  - Houses must be built evenly across the group, with a hotel after 4
-    houses (`max_houses`).
-  - Rent comes from each property's `house_rents`.
+  - Houses must be built evenly across the group. A hotel needs
+    `houses_before_hotel` houses (4 in Classic) and replaces them.
+  - Rent comes from each property's `house_rents` and `hotel_rents`.
   - Selling returns half the cost (`house_sell_percent`).
 - **Mortgages.** Mortgaging pays out half the price (`mortgage_percent`).
   Unmortgaging costs that plus 10% (`unmortgage_interest_percent`).
@@ -84,8 +89,40 @@ file.
     settled at the start of your next turn.
 - **Winning.** The last player standing wins. If the host ends the game
   early, the highest **net worth** (money + property value + buildings at
-  cost, minus debts) wins. A player who leaves mid-game is out, and their
+  cost + stakes at their buy-in, minus debts) wins. A player who leaves mid-game is out, and their
   properties go back to the bank.
+
+## Features (Phase 4)
+
+- **Rule sets.** Every value that changes how the game plays lives in a
+  rule set: a JSON file in `rulesets/`. The host picks one when creating a
+  game, and the lobby and game page show its key values. `classic.json`
+  reproduces Phases 1-3 exactly.
+- **Custom property sets.** A rule set points at its own board file in
+  `boards/`, with its own names, prices, rents, colour groups, icons and
+  custom square types. It can also bring its own card decks.
+- **Stakeholder ownership.** Ownership is a list of stakes (player +
+  percentage). A normal property is one owner with 100%.
+- **Pooled squares.** A square marked `"stakeholder": true` sells stakes
+  (for example 4 stakes of 25%) to players who land on it.
+  - Money paid to the bank can go into its pot, as the rule set says:
+    taxes, jail fines, and/or card fees.
+  - The pot is paid out to the stakeholders, by stake or equally, when
+    anyone lands on the square (or only when a stakeholder does).
+- **More building options.** Rule sets can allow several hotels per
+  property (`max_hotels_per_property`) and change how many houses a hotel
+  needs.
+- **House rules.** `must_lap_before_buying` stops players buying anything
+  until they have been round the board once. `doubles_before_jail` sets how
+  many doubles in a row send you to jail.
+- **AMST.** An adult-themed rule set with its own board ("AMST After
+  Dark"):
+  - bars, cabaret, tattoo studios, casinos and cellars, with its own
+    "Last Call" and "Lucky Dip" card decks
+  - £2000 starting money, £250 Go salary and a £75 jail fine
+  - up to 3 hotels per property, and a full lap before buying
+  - **The Strip Club** sits in the Free Parking corner. Its pot collects
+    taxes, fines and card fees and pays out to its stakeholders by stake.
 
 ## Requirements
 
@@ -103,62 +140,142 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Configure
+## Configure the server
 
 Edit `config.txt`. It uses `key=value` lines, `#` comments and blank lines.
-Missing or invalid keys fall back to defaults.
+Missing or invalid keys fall back to defaults. It only holds server
+settings: everything about how the game plays comes from rule sets.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `starting_money` | 1500 | Money each player starts with |
-| `go_salary` | 200 | Paid for passing or landing on Go |
-| `full_group_rent_multiplier` | 2 | Base rent multiplier when one player owns a whole colour group |
-| `jail_fine` | 50 | Fine to leave jail |
-| `max_jail_turns` | 3 | Tries at rolling doubles before the fine must be paid |
-| `max_houses` | 4 | Houses per property before the next build is a hotel |
-| `house_sell_percent` | 50 | Refund when selling a house or hotel |
-| `mortgage_percent` | 50 | Percentage of the price paid out for a mortgage |
-| `unmortgage_interest_percent` | 10 | Interest added when unmortgaging |
-| `board_size` | 40 | Squares on the outer board (`board_0.txt` is padded or trimmed to fit) |
-| `min_players` / `max_players` | 2 / 6 | Players needed to start / allowed to join |
+| `rulesets_dir` | rulesets | Folder of rule set JSON files |
+| `default_ruleset` | classic | Rule set preselected on the create-game form |
 | `join_code_length` | 6 | Length of generated join codes |
-| `max_doubles` | 3 | Doubles in a row that send a player to jail |
 | `disconnect_grace_seconds` | 5 | How long a player can be disconnected (for example, while a page reloads) before their turn is skipped |
 | `host` / `port` | 0.0.0.0 / 5000 | Where the server listens |
 | `debug` | false | Flask debug mode |
 | `scores_file` | scores.csv | Where scores are logged |
-| `boards_dir` | boards | Folder of board layout files |
-| `cards_dir` | cards | Folder of card decks |
 
-### Board files
+## Rule sets
 
-`boards/board_0.txt` lists one square per line, in order from Go:
+A rule set is one JSON file in `rulesets/`. Its file name (without
+`.json`) is its id. The server loads and checks every rule set at startup,
+so a mistake stops the server with a message saying which file and value
+is wrong. The host chooses one on the create-game form, and that game
+follows it for every rule check.
 
+`rulesets/classic.json` is the base. **Any value another rule set leaves
+out is taken from classic**, so a variant only lists what it changes.
+Here is AMST:
+
+```json
+{
+  "name": "AMST",
+  "description": "Adult-themed rule set: ...",
+  "board": "boards/amst_board.json",
+  "cards": {"chance": "cards/amst_last_call.txt", "community_chest": "cards/amst_lucky_dip.txt"},
+  "economy":     {"starting_money": 2000, "go_salary": 250, "jail_fine": 75},
+  "building":    {"max_houses_per_property": 4, "houses_before_hotel": 4, "max_hotels_per_property": 3},
+  "house_rules": {"doubles_before_jail": 3, "must_lap_before_buying": true},
+  "pool":        {"pool_receives": ["taxes", "fines", "fees"],
+                  "pool_payout_trigger": "on_landing", "pool_payout_split": "by_stake"}
+}
 ```
-name | type | key=value; key=value
+
+| Section | Value | Classic | Meaning |
+| --- | --- | --- | --- |
+| (top) | `name`, `description` | | Shown on the create form and in the lobby |
+| (top) | `board` | `boards/classic_board.json` | The property set / board file |
+| (top) | `cards` | Chance and Community Chest | `{square type: deck file}`; a square of that type draws from that deck |
+| `players` | `min_players` / `max_players` | 2 / 6 | Players needed to start / allowed to join |
+| `economy` | `starting_money` | 1500 | Money each player starts with |
+| `economy` | `go_salary` | 200 | Paid for passing or landing on Go |
+| `economy` | `jail_fine` | 50 | Fine to leave jail |
+| `economy` | `full_group_rent_multiplier` | 2 | Base rent multiplier for a whole colour group |
+| `economy` | `house_sell_percent` | 50 | Refund when selling a house or hotel |
+| `economy` | `mortgage_percent` | 50 | Percentage of the price paid out for a mortgage |
+| `economy` | `unmortgage_interest_percent` | 10 | Interest added when unmortgaging |
+| `building` | `max_houses_per_property` | 4 | Most houses on one property |
+| `building` | `houses_before_hotel` | 4 | Houses needed before the first hotel (the hotel replaces them) |
+| `building` | `max_hotels_per_property` | 1 | Most hotels on one property (0 = no hotels) |
+| `house_rules` | `doubles_before_jail` | 3 | Doubles in a row that send a player to jail |
+| `house_rules` | `max_jail_turns` | 3 | Tries at rolling doubles before the fine must be paid |
+| `house_rules` | `must_lap_before_buying` | false | Players must pass Go once before buying anything |
+| `pool` | `pool_receives` | `[]` | Bank payments that go into a pooled square's pot: any of `taxes` (tax squares), `fines` (jail fines), `fees` (card payments and repairs) |
+| `pool` | `pool_payout_trigger` | `on_landing` | `on_landing`: anyone landing pays the pot out. `on_stakeholder_landing`: only a stakeholder landing does |
+| `pool` | `pool_payout_split` | `by_stake` | `by_stake`: in proportion to stakes (unsold stakes' share stays in the pot). `equal`: split evenly between stakeholders |
+
+Board size is not a rule: it is simply the number of squares in the board
+file.
+
+### Writing a new rule set
+
+1. Copy `rulesets/amst.json` to, say, `rulesets/speedy.json`.
+2. Change `name` and `description`, and keep only the values you want to
+   differ from classic.
+3. Optionally point `board` at a new board file and `cards` at new decks
+   (see below).
+4. Restart the server. The new rule set appears on the create-game form.
+
+No code changes are needed.
+
+### Boards (property sets)
+
+A board is a JSON file in `boards/`: an object with a `name`, optional
+colour `groups`, and a `squares` array listed in order from Go. Each square
+has `index` (its position, starting at 0), `name` and `type`, plus any
+keys for its type:
+
+```json
+{
+  "name": "Classic London",
+  "groups": {"dark_blue": {"name": "Dark blue", "colour": "#0072bb"}},
+  "squares": [
+    {"index": 0, "name": "GO", "type": "go"},
+    {"index": 39, "name": "Mayfair", "type": "property", "group": "dark_blue",
+     "price": 400, "rent": 50, "house_rents": [200, 600, 1400, 1700],
+     "hotel_rents": [2000], "house_cost": 200, "hotel_cost": 200}
+  ]
+}
 ```
 
-`type` is one of `go`, `property`, `station`, `utility`, `tax`, `chance`,
-`community_chest`, `jail`, `free_parking` or `go_to_jail`. The optional
-third column holds attributes:
-
-| Type | Attributes |
+| Type | Keys |
 | --- | --- |
-| `property` | `group` (colour set), `price`, `rent` (base rent), `house_rents` (rent with 1-4 houses then a hotel, e.g. `10/30/90/160/250`), `house_cost` |
-| `station` | `price`, `rent` (rent with one station) |
-| `utility` | `price`, `dice_multiplier`, `full_set_dice_multiplier` |
+| `go`, `jail`, `go_to_jail`, `free_parking` | none |
+| `property` | `group`, `price`, `rent` (base rent), `house_rents` (rent with 1, 2, ... houses), `hotel_rents` (rent with 1, 2, ... hotels), `house_cost`, `hotel_cost` |
+| `station` | `price`, `rents` (rent when the owner has 1, 2, 3, 4 stations) |
+| `utility` | `price`, `dice_multipliers` (dice total × this, by utilities owned) |
 | `tax` | `amount` |
+| `chance`, `community_chest` or any deck name | draws a card from the deck the rule set gives for that type |
+| anything else | a custom type. It's a label unless it's a pooled square. Add `"icon"` to show an emoji on the board |
 
-For example:
-`Mayfair | property | group=dark_blue; price=400; rent=50; house_rents=200/600/1400/1700/2000; house_cost=200`.
-Squares without a `price` can't be bought. Lines starting with `#` are
-comments, and lines starting with `@` set board metadata such as
-`@name=Outer Ring`.
+Squares without a `price` can't be bought. Group colours come from
+`groups`, so a custom board can invent its own colour groups.
+
+### Pooled (stakeholder) squares
+
+Add `"stakeholder": true` to any square, whatever its type, to make it
+pooled:
+
+```json
+{"index": 20, "name": "The Strip Club", "type": "strip_club", "icon": "💃",
+ "stakeholder": true, "max_stakes": 4, "buy_in": 200}
+```
+
+- `max_stakes` is how many equal stakes exist (4 means 25% each).
+- `buy_in` is the price of one stake.
+- A player who lands on the square may buy one stake per visit, while
+  stakes remain. The same lap and debt rules as buying property apply.
+- Stakes can't be mortgaged or traded. On bankruptcy they pass to the
+  creditor; when a player leaves, their stakes return to the bank.
+- The pot is filled and paid out as the rule set's `pool` section says.
+  If a board has several pooled squares, the first one collects the pot.
 
 ### Card files
 
-Each `cards/<deck>.txt` is one deck, drawn by squares of the same type
-(`chance.txt` for `chance` squares). One card per line:
+Each deck is a `.txt` file in `cards/`, and the rule set's `cards` key
+maps a square type to it (Classic: `chance.txt` and `community_chest.txt`;
+AMST: `amst_last_call.txt` and `amst_lucky_dip.txt`). One card per line:
 
 ```
 text | effect | key=value; key=value
@@ -169,9 +286,9 @@ text | effect | key=value; key=value
 | `move_to` | `square=<name>` (collects Go salary if Go is passed) |
 | `move_by` | `steps=<n>` (negative moves back and never pays Go) |
 | `move_to_nearest` | `type=station` or `utility`, optional `rent_multiplier` |
-| `collect` / `pay` | `amount` (from / to the bank) |
+| `collect` / `pay` | `amount` (from / to the bank; `pay` counts as a fee) |
 | `collect_from_each` / `pay_each` | `amount` (from / to every other player) |
-| `repairs` | `house`, `hotel` (charge per building) |
+| `repairs` | `house`, `hotel` (charge per building; counts as a fee) |
 | `go_to_jail` | none |
 | `get_out_of_jail_free` | none (kept until used) |
 
@@ -186,9 +303,10 @@ devices on your network).
 
 ## How to play
 
-1. **Create a game.** On the Recursopoly home page, enter your name and
-   click **Create game**. You become the host and land in the lobby, where
-   the join code is shown in large letters.
+1. **Create a game.** On the Recursopoly home page, enter your name, pick
+   a **rule set** (for example Classic or AMST) and click **Create game**.
+   You become the host and land in the lobby. The lobby shows the join
+   code in large letters and the rule set's key values.
 2. **Invite friends.** Share the join code. Each friend opens the home
    page, types the code and a name under **Join with code**, and joins.
 3. **Start.** When enough players have joined, the host clicks **Start
@@ -201,15 +319,17 @@ devices on your network).
    rent when they land on your squares.
 6. **Build and mortgage.** On your turn, use **Your properties** to build
    houses and hotels, sell them, or mortgage and unmortgage squares.
-7. **Trade.** Click **Propose a trade** to offer properties and money to
+7. **Buy stakes.** Land on a pooled square (AMST's Strip Club) to buy a
+   stake. Its pot pays out to stakeholders as the rule set says.
+8. **Trade.** Click **Propose a trade** to offer properties and money to
    another player. Offers to you appear under **Trades** with **Accept**
    and **Reject**.
-8. **In jail?** Pay the fine, use a card, or roll for doubles.
-9. **Can't pay?** Raise the money, then click **Pay**, or **Declare
+9. **In jail?** Pay the fine, use a card, or roll for doubles.
+10. **Can't pay?** Raise the money, then click **Pay**, or **Declare
    bankruptcy**.
-10. **Rejoin.** If you drop out, rejoin from the home page with the same
+11. **Rejoin.** If you drop out, rejoin from the home page with the same
     code and name.
-11. **Finish.** The game ends when one player is left, or when the host
+12. **Finish.** The game ends when one player is left, or when the host
     clicks **End game** (highest net worth wins). Everyone sees the final
     standings.
 
@@ -226,16 +346,18 @@ Events:
 
 - **Turns:** `game_started`, `roll`, `passed_go`
 - **Buying and paying:** `purchase`, `rent_paid`, `tax_paid`, `debt_paid`
+- **Pooled squares:** `stake_purchased`, `pool_payout`
 - **Cards and jail:** `card_drawn`, `jailed`, `released_from_jail`,
   `jail_fine_paid`, `jail_card_used`
-- **Buildings and mortgages:** `house_built`, `house_sold`, `mortgaged`,
-  `unmortgaged`
+- **Buildings and mortgages:** `house_built`, `hotel_built`,
+  `building_sold`, `mortgaged`, `unmortgaged`
 - **Trading:** `trade_proposed`, `trade_accepted`, `trade_rejected`
 - **Endings:** `bankrupt`, `game_ended`
 
 When a game ends, one `game_ended` row is written per player. Its details
-hold their net worth, finishing position and result (`winner`, `finished`,
-`bankrupt` or `left`). Writes are guarded by a lock, so several games can
+hold their net worth, finishing position, result (`winner`, `finished`,
+`bankrupt` or `left`) and the rule set played. `game_started` rows also
+name the rule set. Writes are guarded by a lock, so several games can
 log at once.
 
 ## Project layout
@@ -243,15 +365,17 @@ log at once.
 ```
 recursopoly/
     app.py              Flask + Flask-SocketIO server (routes, sockets, rooms)
-    game_engine.py      Pure game logic: Board, Square, Player, Game (no Flask)
+    game_engine.py      Pure game logic: Board, Square, Player, Game (no Flask, no files)
+    rulesets.py         Loads and checks rule sets, their boards and card decks
     config.py           Loads config.txt
     logger.py           Appends rows to scores.csv
-    config.txt          Settings
-    boards/board_0.txt  Outer board layout
-    cards/              Chance and Community Chest decks
+    config.txt          Server settings
+    rulesets/           classic.json, amst.json
+    boards/             classic_board.json, amst_board.json
+    cards/              Card decks (classic and AMST)
     templates/          index.html, lobby.html, game.html
     static/             recursopoly.css, recursopoly.js
-    tests/              Unit tests for the engine
+    tests/              Unit tests for the engine and rule sets
 ```
 
 The engine has no web dependencies, so it can be tested on its own:
@@ -264,33 +388,36 @@ python -m unittest discover tests
 
 The code is shaped so later phases add to it instead of rewriting it.
 
-Phases 2 and 3 are built on these hooks:
+Phases 2 to 4 are built on these hooks:
 
 - Landing effects (buy, rent, tax, cards, Go To Jail) live in
   `Game._resolve_landing()`.
 - Choices pause the turn in `TurnState.AWAITING_DECISION` with a
-  `Game.pending_decision` (`buy` or `debt`). `Game.decide()` (the `decide`
+  `Game.pending_decision` (`buy`, `buy_stake` or `debt`). `Game.decide()` (the `decide`
   socket event) resumes it.
 - Every payment goes through `Game._pay()`. A payment that can't be covered
   becomes a debt instead of a negative balance.
-- Ownership, houses and mortgages are stored in `Square.attributes`.
-  `Game.property_actions()` tells the page what each player may do.
+- Ownership (a list of stakes), houses, hotels, mortgages and pots are
+  stored in `Square.attributes`. `Game.property_actions()` tells the page
+  what each player may do.
+- Every tunable value is read with `Game._rule()` from the game's rule set.
+  A new rule is a new key in `rulesets/classic.json` (and in
+  `REQUIRED_VALUES` in `rulesets.py`) that the engine reads.
 - Each rule action (`build_house`, `mortgage`, `propose_trade`, ...) is a
   `Game` method with a matching socket event in `app.py`.
 
 Still to come:
 
-- **Phase 4: nested boards and train travel**
-  - Add `boards/board_1.txt`, `board_2.txt` and so on. `load_boards()`
-    already loads every `board_<n>.txt` into `Game.boards`, keyed by
-    `board_id`.
+- **Phase 5: nested boards and train travel**
+  - A rule set lists several board files instead of one `board`. The
+    engine already keeps boards in `Game.boards`, keyed by `board_id`.
   - Positions are already `Position(board_id, index)`, and movement uses
     the player's current board.
-  - Per-board Go salaries come from an `@go_salary=` line and are read by
-    `Game.go_salary_for()`.
+  - Per-board Go salaries come from a `go_salary` key in a board file and
+    are read by `Game.go_salary_for()`.
   - Station tickets are another `AWAITING_DECISION` choice.
   - The board centre in `recursopoly.js` is where inner boards get drawn.
-- **Phase 5: stats and polish**
+- **Phase 6: stats and polish**
   - `ScoreLogger.read_rows()` reads `scores.csv` back for the leaderboard
     and history pages.
   - Spectators join the Socket.IO room without taking a seat.
