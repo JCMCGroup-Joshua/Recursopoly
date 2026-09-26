@@ -44,6 +44,9 @@ SQUARE_TYPES = (
 )
 
 # Join codes avoid characters that are easily confused (O/0, I/1).
+# Square types that can be bought and charge rent.
+OWNABLE_TYPES = ("property", "station", "utility")
+
 JOIN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 # Token colours, assigned in join order (cycled if max_players is larger).
@@ -372,6 +375,10 @@ class Game:
         self.turn_state = None
         self.turn_number = 0
         self.last_roll = None
+        # What the active player must choose before the turn can continue
+        # (only set while turn_state is AWAITING_DECISION), e.g.
+        # {"type": "buy", "player": ..., "board_id": ..., "index": ..., "price": ...}
+        self.pending_decision = None
         self.winner = None  # Phase 3
         self.created_at = time.time()
 
@@ -586,6 +593,7 @@ class Game:
             self.turn_state = TurnState.WAITING_TO_ROLL
             return
         self.current_index = index
+        self.pending_decision = None
         player = self.players[index]
         player.doubles_in_a_row = 0
         self.turn_state = TurnState.WAITING_TO_ROLL
@@ -625,6 +633,8 @@ class Game:
                 return False
         before = self.current_index
         self._say(f"{player.name} is not connected; skipping their turn.")
+        if self.pending_decision and self.pending_decision["type"] == "buy":
+            self._say(f"{player.name} did not buy {self.pending_decision['square']}.")
         self._advance_turn()
         return self.current_index != before
 
@@ -684,15 +694,61 @@ class Game:
         self._resolve_landing(player, square)
 
         if self.turn_state == TurnState.AWAITING_DECISION:
-            # Phase 2+: the turn pauses here until the player decides.
+            # The turn pauses here until the player calls decide(). Remember
+            # whether they rolled doubles so the turn can resume correctly.
+            self.pending_decision["roll_again"] = doubles
+            result["decision"] = dict(self.pending_decision)
             return result
+        result["roll_again"] = self._finish_move(player, doubles)
+        return result
+
+    def _finish_move(self, player, doubles):
+        """End of a move: roll again on doubles, otherwise pass the turn.
+        Returns True if the player rolls again."""
         if doubles:
-            result["roll_again"] = True
             self._say(f"{player.name} rolled doubles and rolls again.")
             self.turn_state = TurnState.WAITING_TO_ROLL
-        else:
-            self._advance_turn()
-        return result
+            return True
+        self._advance_turn()
+        return False
+
+    def decide(self, name, choice):
+        """The active player answers the pending decision.
+
+        Phase 2 has one kind of decision: "buy" (choice "buy" or "decline").
+        Phase 4 adds train tickets here.
+        """
+        if self.status != GameStatus.IN_PROGRESS:
+            raise GameError("not_started", "The game is not in progress.")
+        player = self._require_player(name)
+        if player is not self.current_player:
+            raise GameError("not_your_turn", "It's not your turn.")
+        decision = self.pending_decision
+        if self.turn_state != TurnState.AWAITING_DECISION or decision is None:
+            raise GameError("bad_state", "There is nothing to decide right now.")
+
+        if decision["type"] == "buy":
+            if choice not in ("buy", "decline"):
+                raise GameError("bad_choice", "Choose to buy or decline.")
+            square = self.square_at(Position(decision["board_id"], decision["index"]))
+            if choice == "buy":
+                self._buy(player, square)
+            else:
+                self._say(f"{player.name} decided not to buy {square.name}.")
+        else:  # pragma: no cover - future decision types
+            raise GameError("bad_choice", "Unknown decision.")
+
+        self.pending_decision = None
+        self._finish_move(player, decision.get("roll_again", False))
+
+    def _buy(self, player, square):
+        price = square.attributes["price"]
+        if player.money < price:
+            raise GameError("cant_afford", f"You can't afford {square.name}.")
+        player.money -= price
+        square.attributes["owner"] = player.name
+        self._say(f"{player.name} bought {square.name} for \u00a3{price}.")
+        self._event("purchase", player, details=f"square={square.name}; price={price}")
 
     def _move_forward(self, player, steps):
         """Move ``steps`` squares along the player's current board, paying the
@@ -706,7 +762,7 @@ class Game:
         salary = self.go_salary_for(board)
         for _ in range(passes):
             player.money += salary
-            self._say(f"{player.name} passed Go and collected {salary}.")
+            self._say(f"{player.name} passed Go and collected \u00a3{salary}.")
             self._event("passed_go", player, details=f"salary={salary}")
         return passes
 
@@ -720,12 +776,104 @@ class Game:
     def _resolve_landing(self, player, square):
         """Apply the effect of landing on ``square``.
 
-        Phase 1: squares are only labels (Go's salary is handled while moving).
-        Phase 2 adds buy/rent/tax here (setting AWAITING_DECISION for buy
-        choices), Phase 3 adds cards and go_to_jail, Phase 4 adds station
-        travel offers.
+        Phase 2: offer unowned properties, stations and utilities for sale
+        (pausing the turn in AWAITING_DECISION), charge rent on owned ones,
+        and charge tax. Go's salary is handled while moving. Phase 3 adds
+        cards and go_to_jail; Phase 4 adds station travel offers.
         """
-        return None
+        if square.type in OWNABLE_TYPES:
+            owner_name = square.attributes.get("owner")
+            if owner_name is None:
+                self._offer_purchase(player, square)
+            elif owner_name.lower() != player.name.lower():
+                self._charge_rent(player, square)
+        elif square.type == "tax":
+            amount = square.attributes.get("amount", 0)
+            if amount:
+                player.money -= amount
+                self._say(f"{player.name} paid \u00a3{amount} {square.name}.")
+                self._event("tax_paid", player, details=f"square={square.name}; amount={amount}")
+
+    def _offer_purchase(self, player, square):
+        price = square.attributes.get("price")
+        if price is None:
+            return  # no price in the board file: not for sale
+        if player.money < price:
+            self._say(f"{player.name} can't afford {square.name} (\u00a3{price}).")
+            return
+        self.pending_decision = {
+            "type": "buy",
+            "player": player.name,
+            "board_id": player.position.board_id,
+            "index": player.position.index,
+            "square": square.name,
+            "price": price,
+        }
+        self.turn_state = TurnState.AWAITING_DECISION
+        self._say(f"{player.name} can buy {square.name} for \u00a3{price}.")
+
+    def _charge_rent(self, player, square):
+        owner = self.get_player(square.attributes["owner"])
+        if owner is None or owner.left:
+            return  # nobody to collect it (Phase 3 returns these to the bank)
+        dice_total = self.last_roll["total"] if self.last_roll else 0
+        rent = self.rent_for(player.position.board_id, square, dice_total)
+        if rent <= 0:
+            return
+        # Money may go negative; bankruptcy arrives in Phase 3.
+        player.money -= rent
+        owner.money += rent
+        self._say(f"{player.name} paid \u00a3{rent} rent to {owner.name} for {square.name}.")
+        self._event("rent_paid", player,
+                    details=f"square={square.name}; owner={owner.name}; amount={rent}")
+
+    # -- ownership ---------------------------------------------------------
+
+    def owned_squares(self, owner_name, board_id=None, square_type=None):
+        """All (board_id, Square) pairs owned by ``owner_name``."""
+        found = []
+        for bid, board in self.boards.items():
+            if board_id is not None and bid != board_id:
+                continue
+            for sq in board.squares:
+                owner = sq.attributes.get("owner")
+                if owner and owner.lower() == owner_name.lower() and \
+                        (square_type is None or sq.type == square_type):
+                    found.append((bid, sq))
+        return found
+
+    def owns_full_group(self, owner_name, board_id, group):
+        members = [sq for sq in self.boards[board_id].squares
+                   if sq.type == "property" and sq.attributes.get("group") == group]
+        return bool(members) and all(
+            (sq.attributes.get("owner") or "").lower() == owner_name.lower() for sq in members
+        )
+
+    def rent_for(self, board_id, square, dice_total):
+        """Rent due for landing on an owned ``square`` on ``board_id``."""
+        owner = square.attributes.get("owner")
+        if not owner:
+            return 0
+        attrs = square.attributes
+        if square.type == "property":
+            rent = attrs.get("rent", 0)
+            group = attrs.get("group")
+            if group and self.owns_full_group(owner, board_id, group):
+                rent *= self._setting("full_group_rent_multiplier")
+            return rent
+        if square.type == "station":
+            count = len(self.owned_squares(owner, board_id, "station"))
+            return attrs.get("rent", 0) * 2 ** (max(count, 1) - 1)
+        if square.type == "utility":
+            board = self.boards[board_id]
+            utilities = [sq for sq in board.squares if sq.type == "utility"]
+            owned = self.owned_squares(owner, board_id, "utility")
+            if len(owned) == len(utilities):
+                multiplier = attrs.get("full_set_dice_multiplier", attrs.get("dice_multiplier", 0))
+            else:
+                multiplier = attrs.get("dice_multiplier", 0)
+            return dice_total * multiplier
+        return 0
 
     # -- ending ------------------------------------------------------------
 
@@ -751,15 +899,23 @@ class Game:
 
     def to_dict(self):
         current = self.current_player
+        players = []
+        for p in self.players:
+            data = p.to_dict()
+            data["properties"] = [
+                {"board_id": bid, "index": sq.index} for bid, sq in self.owned_squares(p.name)
+            ]
+            players.append(data)
         return {
             "join_code": self.join_code,
             "status": self.status,
             "host": self.host_name,
-            "players": [p.to_dict() for p in self.players],
+            "players": players,
             "current_player": current.name if current and self.status == GameStatus.IN_PROGRESS else None,
             "turn_state": self.turn_state,
             "turn_number": self.turn_number,
             "last_roll": self.last_roll,
+            "pending_decision": self.pending_decision,
             "boards": {str(bid): b.to_dict() for bid, b in self.boards.items()},
             "min_players": self._setting("min_players"),
             "max_players": self._setting("max_players"),
