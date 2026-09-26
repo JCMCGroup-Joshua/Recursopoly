@@ -21,6 +21,7 @@ from game_engine import (
     GameStatus,
     generate_join_code,
     load_boards,
+    load_decks,
     normalise_join_code,
 )
 from logger import ScoreLogger
@@ -62,6 +63,14 @@ _startup_boards = _load_boards()
 log.info(
     "Recursopoly loaded %d board(s); outer board has %d squares",
     len(_startup_boards), _startup_boards[0].size,
+)
+
+# Chance / Community Chest decks. Cards never change, so every game shares
+# these lists and shuffles its own copy.
+DECKS = load_decks(CONFIG.path("cards_dir"))
+log.info(
+    "Recursopoly loaded card decks: %s",
+    ", ".join(f"{name} ({len(cards)})" for name, cards in DECKS.items()) or "none",
 )
 
 
@@ -180,7 +189,7 @@ def on_create_game(data):
     data = data or {}
     with state_lock:
         code = generate_join_code(CONFIG.join_code_length, existing=games.keys())
-        game = Game(code, _load_boards(), CONFIG)
+        game = Game(code, _load_boards(), CONFIG, decks=DECKS)
         try:
             player, _ = game.add_player(data.get("name"))
         except GameError as err:
@@ -272,6 +281,68 @@ def on_decide(data):
         except GameError as err:
             return send_error(str(err), err.code)
         broadcast_state(game)
+
+
+def player_action(action):
+    """Run ``action(game, player_name)`` for the calling socket's player,
+    reporting rule errors to them and broadcasting the new state."""
+    with state_lock:
+        game, name = current_session()
+        if game is None:
+            return send_error("You are not in a game.", "no_session")
+        try:
+            action(game, name)
+        except GameError as err:
+            return send_error(str(err), err.code)
+        broadcast_state(game)
+
+
+def _int(data, key):
+    try:
+        return int((data or {}).get(key))
+    except (TypeError, ValueError):
+        raise GameError("bad_request", f"Missing or invalid '{key}'.") from None
+
+
+def _square_action(method_name):
+    """Handler for events that act on one square: {"board_id", "index"}."""
+    def handler(data):
+        def action(game, name):
+            getattr(game, method_name)(name, _int(data, "board_id"), _int(data, "index"))
+        player_action(action)
+    return handler
+
+
+# Jail
+socketio.on_event("pay_jail_fine", lambda _data=None: player_action(lambda g, n: g.pay_jail_fine(n)))
+socketio.on_event("use_jail_card", lambda _data=None: player_action(lambda g, n: g.use_jail_card(n)))
+
+# Buildings and mortgages: {"board_id": 0, "index": 39}
+for _event in ("build_house", "sell_house", "mortgage", "unmortgage"):
+    socketio.on_event(_event, _square_action(_event))
+
+
+@socketio.on("propose_trade")
+def on_propose_trade(data):
+    """{"to", "give_money", "give_squares": [[board_id, index], ...],
+    "get_money", "get_squares"}"""
+    data = data or {}
+    player_action(lambda g, n: g.propose_trade(
+        n, data.get("to"),
+        give_money=data.get("give_money", 0), give_squares=data.get("give_squares") or [],
+        get_money=data.get("get_money", 0), get_squares=data.get("get_squares") or [],
+    ))
+
+
+@socketio.on("respond_trade")
+def on_respond_trade(data):
+    """{"trade_id", "accept": true/false}"""
+    player_action(lambda g, n: g.respond_trade(n, _int(data, "trade_id"), bool((data or {}).get("accept"))))
+
+
+@socketio.on("cancel_trade")
+def on_cancel_trade(data):
+    player_action(lambda g, n: g.cancel_trade(n, _int(data, "trade_id")))
 
 
 @socketio.on("end_game")

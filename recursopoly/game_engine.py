@@ -1568,9 +1568,14 @@ class Game:
             items = [self.square_at(Position(b, i)).name for b, i in positions]
             if amount:
                 items.append(money(amount))
-            return " + ".join(items) or "nothing"
-        return (f"{trade['from']} gives {side(trade['give_money'], trade['give_squares'])} "
-                f"for {trade['to']}'s {side(trade['get_money'], trade['get_squares'])}")
+            return " + ".join(items)
+        give = side(trade["give_money"], trade["give_squares"])
+        get = side(trade["get_money"], trade["get_squares"])
+        if not get:
+            return f"{trade['from']} gives {give} to {trade['to']}"
+        if not give:
+            return f"{trade['from']} asks {trade['to']} for {get}"
+        return f"{trade['from']} gives {give} for {trade['to']}'s {get}"
 
     def propose_trade(self, name, to, give_money=0, give_squares=(), get_money=0, get_squares=()):
         """Offer a trade to another player. Trades can be proposed and
