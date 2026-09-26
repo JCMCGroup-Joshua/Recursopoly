@@ -1,0 +1,19 @@
+# AMST "Lucky Dip" deck (drawn on community chest squares in the AMST rule set)
+# Same format as chance.txt: text | effect | key=value; key=value
+
+Back to GO. Collect your wages | move_to | square=GO
+The bar till was short in your favour. Collect £250 | collect | amount=250
+Taxi home after a big night. Pay £60 | pay | amount=60
+Your cocktail recipe goes viral. Collect £60 | collect | amount=60
+VIP wristband. Get Out of Jail Free | get_out_of_jail_free
+Busted after hours. Go straight to the Drunk Tank | go_to_jail
+Tips jar is full. Collect £120 | collect | amount=120
+Bottle deposit refund. Collect £25 | collect | amount=25
+It's your birthday! Collect £15 from each player | collect_from_each | amount=15
+Stag do payout. Collect £120 | collect | amount=120
+Replace a broken mirror. Pay £120 | pay | amount=120
+Dry-cleaning bill. Pay £60 | pay | amount=60
+Guest DJ fee. Collect £30 | collect | amount=30
+Licensing inspection: £50 per house, £140 per hotel | repairs | house=50; hotel=140
+Runner-up in the karaoke contest. Collect £15 | collect | amount=15
+A regular leaves you a tip in their will. Collect £120 | collect | amount=120
