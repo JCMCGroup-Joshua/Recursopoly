@@ -185,7 +185,42 @@ body > .banner { margin: 0 16px 12px; }
 .player-list li.is-current { background: #fff4c7; outline: 2px solid var(--warn); }
 .player-list li.is-offline { opacity: 0.55; }
 .player-list .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.player-list li { flex-wrap: wrap; }
 .player-list .money { font-variant-numeric: tabular-nums; font-weight: 700; }
+.player-list .money.is-negative { color: var(--accent); }
+
+/* A player's properties, shown under their name. */
+.props {
+    list-style: none;
+    margin: 2px 0 0 24px;
+    padding: 0;
+    flex-basis: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.prop-chip {
+    font-size: 0.75rem;
+    padding: 1px 6px 1px 4px;
+    border-radius: 4px;
+    background: #fff;
+    border: 1px solid #d5dad7;
+    border-left: 5px solid var(--chip);
+}
+
+/* Buy / Decline prompt. */
+.decision {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 7px;
+    background: #fff4c7;
+    border: 1px solid var(--warn);
+}
+
+.decision p { margin: 0 0 8px; font-weight: 700; }
+.decision-actions { display: flex; gap: 8px; }
+.decision-actions .btn { flex: 1; }
 
 .tag {
     font-size: 0.72rem;
@@ -316,6 +351,17 @@ body > .banner { margin: 0 16px 12px; }
 }
 
 .square .sq-icon { text-align: center; font-size: 1.6em; line-height: 1; }
+
+.square .sq-price {
+    text-align: center;
+    font-size: 0.95em;
+    color: var(--muted);
+    line-height: 1.1;
+}
+
+/* Owned squares get a thick inner border in the owner's colour. */
+.square.owned { box-shadow: inset 0 0 0 3px var(--owner); }
+.square.owned .sq-price { color: var(--owner); font-weight: 800; }
 
 .square.corner { background: #f8f3dd; }
 .square.corner .sq-name { font-size: 1.15em; font-weight: 800; }

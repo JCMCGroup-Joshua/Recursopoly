@@ -156,7 +156,7 @@
         });
 
         socket.on("disconnect", function () {
-            showError("Connection lost. Trying to reconnect…");
+            showError("Connection lost. Trying to reconnect\u2026");
         });
 
         var leave = $("leave-btn");
@@ -191,7 +191,11 @@
         if (player.name === state.host) li.appendChild(el("span", "tag tag-host", "host"));
         if (player.left) li.appendChild(el("span", "tag", "left"));
         else if (!player.connected) li.appendChild(el("span", "tag", "offline"));
-        if (showMoney) li.appendChild(el("span", "money", formatMoney(player.money)));
+        if (showMoney) {
+            var money = el("span", "money", formatMoney(player.money));
+            if (player.money < 0) money.classList.add("is-negative");
+            li.appendChild(money);
+        }
         return li;
     }
 
@@ -230,11 +234,11 @@
             if (state.status === "ended") {
                 status.textContent = "This game was cancelled by the host.";
             } else if (!enough) {
-                status.textContent = "Waiting for at least " + state.min_players + " players…";
+                status.textContent = "Waiting for at least " + state.min_players + " players\u2026";
             } else if (host) {
                 status.textContent = "Ready! Press Start when everyone is here.";
             } else {
-                status.textContent = "Waiting for " + state.host + " to start the game…";
+                status.textContent = "Waiting for " + state.host + " to start the game\u2026";
             }
         });
     }
@@ -265,8 +269,32 @@
         go: "←"
     };
 
+    var OWNABLE = { property: true, station: true, utility: true };
+
     var boardBuiltFor = null;  // board signature, so we only rebuild on change
-    var squareNodes = [];
+    var squareNodes = [];      // token holder per square index
+    var squareEls = [];        // whole square element per square index
+
+    function groupColour(sq) {
+        var group = sq.attributes && sq.attributes.group;
+        return group ? "var(--group-" + group + ", #999)" : null;
+    }
+
+    // Tooltip text: name, type, price, rent and owner.
+    function squareTitle(sq) {
+        var a = sq.attributes || {};
+        var parts = [sq.name + " (" + sq.type.replace(/_/g, " ") + ")"];
+        if (a.price) parts.push("Price " + formatMoney(a.price));
+        if (sq.type === "property" && a.rent) parts.push("Rent " + formatMoney(a.rent));
+        if (sq.type === "station" && a.rent) parts.push("Rent from " + formatMoney(a.rent));
+        if (sq.type === "utility" && a.dice_multiplier) {
+            parts.push("Rent " + a.dice_multiplier + "\u00d7 dice (" +
+                (a.full_set_dice_multiplier || a.dice_multiplier) + "\u00d7 with all utilities)");
+        }
+        if (sq.type === "tax" && a.amount) parts.push("Pay " + formatMoney(a.amount));
+        if (a.owner) parts.push("Owned by " + a.owner);
+        return parts.join("\n");
+    }
 
     function buildBoard(board) {
         var container = $("board");
@@ -275,6 +303,7 @@
         container.replaceChildren();
         container.style.setProperty("--cells", s + 1);
         squareNodes = [];
+        squareEls = [];
 
         board.squares.forEach(function (sq) {
             var cell = squareCell(sq.index, n);
@@ -282,22 +311,23 @@
             if (sq.index % s === 0) node.classList.add("corner");
             node.style.gridRow = cell.row;
             node.style.gridColumn = cell.col;
-            node.title = sq.name + " (" + sq.type.replace(/_/g, " ") + ")";
-
-            var group = sq.attributes && sq.attributes.group;
-            if (group && sq.type === "property") {
+            if (groupColour(sq) && sq.type === "property") {
                 var band = el("div", "band");
-                band.style.background = "var(--group-" + group + ", #999)";
+                band.style.background = groupColour(sq);
                 node.appendChild(band);
             }
             node.appendChild(el("div", "sq-name", sq.name));
             if (SQUARE_ICONS[sq.type] && sq.type !== "property") {
                 node.appendChild(el("div", "sq-icon", SQUARE_ICONS[sq.type]));
             }
+            var a = sq.attributes || {};
+            var cost = OWNABLE[sq.type] ? a.price : (sq.type === "tax" ? a.amount : null);
+            if (cost) node.appendChild(el("div", "sq-price", formatMoney(cost)));
             var tokens = el("div", "tokens");
             node.appendChild(tokens);
             container.appendChild(node);
             squareNodes[sq.index] = tokens;
+            squareEls[sq.index] = node;
         });
 
         // The centre: in Phase 4 the next board inward is drawn here.
@@ -323,6 +353,21 @@
         });
     }
 
+    // Outline owned squares in their owner's colour.
+    function renderOwnership(state, board) {
+        var colours = {};
+        state.players.forEach(function (p) { colours[p.name] = p.colour; });
+        board.squares.forEach(function (sq) {
+            var node = squareEls[sq.index];
+            if (!node) return;
+            var owner = sq.attributes && sq.attributes.owner;
+            node.classList.toggle("owned", !!owner);
+            if (owner) node.style.setProperty("--owner", colours[owner] || "#666");
+            else node.style.removeProperty("--owner");
+            node.title = squareTitle(sq);
+        });
+    }
+
     function renderDice(state) {
         var box = $("dice");
         box.replaceChildren();
@@ -340,18 +385,57 @@
         var indicator = $("turn-indicator");
         var myTurn = state.status === "in_progress" && isMe(state.current_player);
         indicator.classList.toggle("is-you", myTurn);
+        var deciding = state.status === "in_progress" && state.turn_state === "awaiting_decision" &&
+            state.pending_decision;
         if (state.status === "ended") indicator.textContent = "Game over";
+        else if (myTurn && deciding) indicator.textContent = "Your turn! Make your choice.";
         else if (myTurn) indicator.textContent = "Your turn! Roll the dice.";
+        else if (deciding) {
+            indicator.textContent = state.current_player + " is deciding whether to buy " +
+                state.pending_decision.square;
+        }
         else if (state.current_player) indicator.textContent = state.current_player + "'s turn";
-        else indicator.textContent = "Waiting for players…";
+        else indicator.textContent = "Waiting for players\u2026";
 
         $("roll-btn").disabled = !(myTurn && state.turn_state === "waiting_to_roll");
+        renderDecision(state, myTurn && deciding);
+    }
+
+    // Buy / Decline prompt for the active player.
+    function renderDecision(state, show) {
+        var box = $("decision");
+        box.hidden = !show;
+        if (!show) return;
+        var d = state.pending_decision;
+        var self = null;
+        state.players.forEach(function (p) { if (isMe(p.name)) self = p; });
+        $("decision-text").textContent = "Buy " + d.square + " for " + formatMoney(d.price) + "?";
+        $("buy-btn").disabled = !self || self.money < d.price;
+        $("decline-btn").disabled = false;
     }
 
     function renderPlayers(state) {
         var list = $("game-players");
         list.replaceChildren();
-        state.players.forEach(function (p) { list.appendChild(playerRow(p, state, true)); });
+        var board = state.boards["0"];
+        state.players.forEach(function (p) {
+            var li = playerRow(p, state, true);
+            var props = (p.properties || [])
+                .filter(function (pos) { return pos.board_id === 0; })
+                .map(function (pos) { return board.squares[pos.index]; })
+                .sort(function (a, b) { return a.index - b.index; });
+            if (props.length) {
+                var ul = el("ul", "props");
+                props.forEach(function (sq) {
+                    var chip = el("li", "prop-chip", sq.name);
+                    chip.style.setProperty("--chip", groupColour(sq) || "#777");
+                    chip.title = squareTitle(sq);
+                    ul.appendChild(chip);
+                });
+                li.appendChild(ul);
+            }
+            list.appendChild(li);
+        });
     }
 
     function renderLog(state) {
@@ -384,6 +468,14 @@
             socket.emit("roll_dice");
         });
 
+        ["buy", "decline"].forEach(function (choice) {
+            $(choice + "-btn").addEventListener("click", function () {
+                $("buy-btn").disabled = true;
+                $("decline-btn").disabled = true;
+                socket.emit("decide", { choice: choice });
+            });
+        });
+
         initSeat(function (state) {
             if (state.status === "lobby") { goTo("lobby", state.join_code); return; }
 
@@ -394,6 +486,7 @@
                 buildBoard(board);
                 boardBuiltFor = signature;
             }
+            renderOwnership(state, board);
             renderTokens(state, 0);
             renderDice(state);
             renderTurn(state);
