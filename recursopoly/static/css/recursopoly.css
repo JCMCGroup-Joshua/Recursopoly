@@ -1,0 +1,385 @@
+/* Recursopoly stylesheet */
+
+:root {
+    --bg: #f3efe4;
+    --surface: #ffffff;
+    --board: #cfe6d4;
+    --board-centre: #d9eedd;
+    --ink: #1d2a24;
+    --muted: #5d6b64;
+    --line: #2a3b33;
+    --accent: #b3261e;
+    --accent-ink: #ffffff;
+    --good: #1f7a3f;
+    --warn: #f5b400;
+    --radius: 10px;
+    --shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+
+    /* Colour groups used by property squares (board file "group=..."). */
+    --group-brown: #8b4a2b;
+    --group-light_blue: #a9dbf5;
+    --group-pink: #d93a96;
+    --group-orange: #f7941d;
+    --group-red: #e3222a;
+    --group-yellow: #fef200;
+    --group-green: #1fb25a;
+    --group-dark_blue: #0072bb;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; }
+
+body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.45;
+}
+
+[hidden] { display: none !important; }
+
+a { color: inherit; }
+
+/* ---- Header / footer --------------------------------------------------- */
+
+.site-header {
+    text-align: center;
+    padding: 28px 16px 8px;
+}
+
+.site-header-compact {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    text-align: left;
+}
+
+.logo {
+    margin: 0;
+    font-size: clamp(2rem, 6vw, 3.2rem);
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+
+.site-header-compact .logo { font-size: 1.6rem; }
+.logo a { text-decoration: none; }
+
+.tagline { margin: 4px 0 0; color: var(--muted); }
+.header-code { color: var(--muted); }
+.header-code strong { color: var(--ink); letter-spacing: 0.12em; }
+
+.site-footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+    padding: 24px 16px;
+}
+
+/* ---- Cards, forms, buttons ---------------------------------------------- */
+
+.card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 16px 18px;
+}
+
+.card h2 { margin: 0 0 8px; font-size: 1.15rem; }
+
+.landing, .lobby {
+    max-width: 880px;
+    margin: 16px auto;
+    padding: 0 16px;
+    display: grid;
+    gap: 16px;
+}
+
+@media (min-width: 720px) {
+    .landing { grid-template-columns: 1fr 1fr; }
+    .landing .banner { grid-column: 1 / -1; }
+}
+
+.lobby { max-width: 560px; }
+
+form { display: grid; gap: 6px; }
+label { font-weight: 600; font-size: 0.9rem; }
+
+input {
+    font: inherit;
+    padding: 9px 11px;
+    border: 1px solid #b9c2bd;
+    border-radius: 7px;
+    width: 100%;
+}
+
+input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.code-input { text-transform: uppercase; letter-spacing: 0.15em; }
+
+.btn {
+    font: inherit;
+    font-weight: 600;
+    border: 1px solid #b9c2bd;
+    background: #f7f7f5;
+    color: var(--ink);
+    border-radius: 7px;
+    padding: 9px 16px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
+}
+
+.btn:hover:not(:disabled) { filter: brightness(0.95); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn-danger { background: #fff; border-color: var(--accent); color: var(--accent); }
+.btn-small { padding: 4px 10px; font-size: 0.85rem; }
+form .btn { margin-top: 8px; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+.banner {
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    font-weight: 600;
+}
+
+.banner-error { background: #fde3e1; color: #8a1c15; border: 1px solid #f3b3ad; }
+body > .banner { margin: 0 16px 12px; }
+
+.muted { color: var(--muted); font-weight: normal; }
+
+/* ---- Lobby --------------------------------------------------------------- */
+
+.join-code-card { text-align: center; }
+.join-code-card p { margin: 0; color: var(--muted); }
+
+.join-code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: clamp(2.4rem, 11vw, 3.6rem);
+    font-weight: 800;
+    letter-spacing: 0.2em;
+    margin: 6px 0 10px;
+    overflow-wrap: anywhere;
+}
+
+/* ---- Player lists -------------------------------------------------------- */
+
+.player-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+
+.player-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 7px;
+    background: #f6f6f2;
+}
+
+.player-list li.is-current { background: #fff4c7; outline: 2px solid var(--warn); }
+.player-list li.is-offline { opacity: 0.55; }
+.player-list .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.player-list .money { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+.tag {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: #e4e8e5;
+    color: var(--muted);
+}
+
+.tag-host { background: #fbe0de; color: var(--accent); }
+
+.swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    flex: none;
+    border: 2px solid rgba(0, 0, 0, 0.35);
+}
+
+/* ---- Game layout ------------------------------------------------------- */
+
+.game-layout {
+    display: grid;
+    gap: 16px;
+    padding: 0 16px 24px;
+    grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1000px) {
+    .game-layout { grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+}
+
+.sidebar { display: grid; gap: 12px; }
+
+.turn-card { text-align: center; }
+
+.turn-indicator {
+    font-weight: 700;
+    font-size: 1.1rem;
+    padding: 8px;
+    border-radius: 7px;
+    background: #eef1ef;
+}
+
+.turn-indicator.is-you {
+    background: var(--good);
+    color: #fff;
+    animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    50% { box-shadow: 0 0 0 6px rgba(31, 122, 63, 0.2); }
+}
+
+.dice {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    min-height: 58px;
+    margin: 10px 0;
+    align-items: center;
+}
+
+.die {
+    font-size: 3rem;
+    line-height: 1;
+}
+
+.dice .roll-caption { font-size: 0.85rem; color: var(--muted); }
+
+.btn-roll { width: 100%; font-size: 1.1rem; padding: 12px; }
+
+.log-card { max-height: 360px; display: flex; flex-direction: column; }
+
+.event-log {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    font-size: 0.9rem;
+    display: flex;
+    flex-direction: column-reverse;   /* newest at the top */
+}
+
+.event-log li { padding: 4px 0; border-bottom: 1px solid #eee; }
+
+/* ---- Board ----------------------------------------------------------- */
+/* The grid size is set from JS (--cells) so any board_size works. */
+
+.board-wrap { display: flex; justify-content: center; }
+
+.board {
+    --cells: 11;
+    display: grid;
+    grid-template-columns: repeat(var(--cells), minmax(0, 1fr));
+    grid-template-rows: repeat(var(--cells), minmax(0, 1fr));
+    width: min(100%, 86vh);
+    aspect-ratio: 1 / 1;
+    background: var(--board);
+    border: 3px solid var(--line);
+    gap: 1px;
+    padding: 0;
+}
+
+.square {
+    position: relative;
+    background: var(--surface);
+    outline: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+    min-height: 0;
+    font-size: clamp(5px, 0.9vw, 10px);
+}
+
+.square .band { height: 22%; flex: none; border-bottom: 1px solid var(--line); }
+
+.square .sq-name {
+    padding: 1px 2px;
+    text-align: center;
+    font-weight: 600;
+    line-height: 1.1;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+}
+
+.square .sq-icon { text-align: center; font-size: 1.6em; line-height: 1; }
+
+.square.corner { background: #f8f3dd; }
+.square.corner .sq-name { font-size: 1.15em; font-weight: 800; }
+.square.type-go { background: #ffe3de; }
+.square.type-chance .sq-icon { color: #e07b00; }
+.square.type-community_chest .sq-icon { color: #0063a6; }
+
+.tokens {
+    margin-top: auto;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1px;
+    padding: 1px;
+}
+
+.token {
+    width: clamp(9px, 1.8vw, 18px);
+    height: clamp(9px, 1.8vw, 18px);
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: clamp(5px, 0.9vw, 9px);
+    font-weight: 800;
+    display: grid;
+    place-items: center;
+    transition: transform 0.2s;
+}
+
+.token.is-current { transform: scale(1.25); box-shadow: 0 0 0 2px var(--warn); }
+.token.is-offline { opacity: 0.4; }
+
+.board-centre {
+    background: var(--board-centre);
+    display: grid;
+    place-items: center;
+    text-align: center;
+}
+
+.board-centre .centre-logo {
+    font-weight: 900;
+    font-size: clamp(1rem, 4.5vw, 3rem);
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    transform: rotate(-40deg);
+    text-transform: uppercase;
+    /* Faint echo of a smaller board inside: Phase 4's nested boards go here. */
+    padding: 0.4em 0.8em;
+    border: 3px double rgba(179, 38, 30, 0.35);
+}
+
+/* ---- Game over overlay ------------------------------------------------ */
+
+.overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 30, 25, 0.55);
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    z-index: 10;
+}
+
+.overlay-card { width: min(420px, 100%); text-align: center; }
+.standings { text-align: left; padding-left: 1.4em; }
+.standings li { padding: 3px 0; }
