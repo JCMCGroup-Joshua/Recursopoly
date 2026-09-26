@@ -66,7 +66,13 @@
         box.hidden = false;
     }
 
+    var navigating = false;
+
     function goTo(status, code) {
+        // Several game_state broadcasts can arrive back to back; only follow
+        // the first redirect so we don't abort our own navigation.
+        if (navigating) return;
+        navigating = true;
         if (status === "lobby") window.location.href = "/lobby/" + code;
         else window.location.href = "/game/" + code;
     }
@@ -351,7 +357,10 @@
     function renderLog(state) {
         var list = $("event-log");
         list.replaceChildren();
-        state.log.forEach(function (entry) { list.appendChild(el("li", null, entry.message)); });
+        // Newest first, so the latest roll is always visible without scrolling.
+        state.log.slice().reverse().forEach(function (entry) {
+            list.appendChild(el("li", null, entry.message));
+        });
     }
 
     function renderGameOver(state) {

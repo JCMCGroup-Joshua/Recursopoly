@@ -268,9 +268,9 @@ body > .banner { margin: 0 16px 12px; }
     padding: 0;
     overflow-y: auto;
     font-size: 0.9rem;
-    display: flex;
-    flex-direction: column-reverse;   /* newest at the top */
 }
+
+.event-log li:first-child { font-weight: 600; }
 
 .event-log li { padding: 4px 0; border-bottom: 1px solid #eee; }
 
