@@ -1,0 +1,57 @@
+# Recursopoly board 0 - the outer board
+# ---------------------------------------------------------------
+# One square per line, in order, starting at index 0 (Go):
+#
+#     name | type | key=value; key=value
+#
+# type is one of: go, property, station, utility, tax, chance,
+# community_chest, jail, free_parking, go_to_jail.
+# The optional third column is a free-form attribute list. Phase 1 only
+# uses "group" (for the colour band on the board); later phases add
+# price, rent, tax amounts and station links here without changing the
+# file format.
+#
+# Lines starting with @ set board-level metadata (name, go_salary, ...).
+
+@name=Outer Ring
+
+GO | go
+Old Kent Road | property | group=brown
+Community Chest | community_chest
+Whitechapel Road | property | group=brown
+Income Tax | tax
+King's Cross Station | station
+The Angel Islington | property | group=light_blue
+Chance | chance
+Euston Road | property | group=light_blue
+Pentonville Road | property | group=light_blue
+Jail / Just Visiting | jail
+Pall Mall | property | group=pink
+Electric Company | utility
+Whitehall | property | group=pink
+Northumberland Avenue | property | group=pink
+Marylebone Station | station
+Bow Street | property | group=orange
+Community Chest | community_chest
+Marlborough Street | property | group=orange
+Vine Street | property | group=orange
+Free Parking | free_parking
+Strand | property | group=red
+Chance | chance
+Fleet Street | property | group=red
+Trafalgar Square | property | group=red
+Fenchurch St. Station | station
+Leicester Square | property | group=yellow
+Coventry Street | property | group=yellow
+Water Works | utility
+Piccadilly | property | group=yellow
+Go To Jail | go_to_jail
+Regent Street | property | group=green
+Oxford Street | property | group=green
+Community Chest | community_chest
+Bond Street | property | group=green
+Liverpool Street Station | station
+Chance | chance
+Park Lane | property | group=dark_blue
+Super Tax | tax
+Mayfair | property | group=dark_blue
