@@ -1999,6 +1999,7 @@ class Game:
                 "max_houses_per_property": self._rule("max_houses_per_property"),
                 "max_hotels_per_property": self._rule("max_hotels_per_property"),
                 "houses_before_hotel": self._rule("houses_before_hotel"),
+                "must_lap_before_buying": self._rule("must_lap_before_buying"),
             },
             "winner": self.winner,
             "standings": [

@@ -21,6 +21,12 @@
             <button type="button" class="btn btn-small" id="copy-code">Copy code</button>
         </section>
 
+        <section class="card ruleset-card">
+            <h2>Rule set: <span id="ruleset-name"></span></h2>
+            <p id="ruleset-description" class="muted"></p>
+            <dl id="ruleset-summary" class="ruleset-summary"></dl>
+        </section>
+
         <section class="card">
             <h2>Players <span id="player-count" class="muted"></span></h2>
             <ul id="lobby-players" class="player-list"></ul>
@@ -33,7 +39,7 @@
         </section>
     </main>
 
-    <footer class="site-footer">Recursopoly &middot; Phase 1</footer>
+    <footer class="site-footer">Recursopoly &middot; Phase 4</footer>
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="{{ url_for('static', filename='js/recursopoly.js') }}"></script>

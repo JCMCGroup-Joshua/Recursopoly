@@ -77,9 +77,9 @@
         else window.location.href = "/game/" + code;
     }
 
-    var DIE_FACES = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+    var DIE_FACES = ["", "\u2680", "\u2681", "\u2682", "\u2683", "\u2684", "\u2685"];
 
-    function formatMoney(amount) { return "£" + amount; }
+    function formatMoney(amount) { return "\u00a3" + amount; }
 
     // =====================================================================
     // Landing page
@@ -88,10 +88,18 @@
     function initIndex() {
         var pending = null;  // {code?, name} of the request in flight
 
+        var picker = $("create-ruleset");
+        function describeRuleset() {
+            var opt = picker.options[picker.selectedIndex];
+            $("ruleset-description").textContent = opt ? opt.dataset.description : "";
+        }
+        picker.addEventListener("change", describeRuleset);
+        describeRuleset();
+
         $("create-form").addEventListener("submit", function (ev) {
             ev.preventDefault();
             pending = { name: $("create-name").value.trim() };
-            socket.emit("create_game", { name: pending.name });
+            socket.emit("create_game", { name: pending.name, ruleset: picker.value });
         });
 
         $("join-form").addEventListener("submit", function (ev) {
@@ -174,6 +182,21 @@
         }
     }
 
+    // Name, description and key values of the game's rule set.
+    function renderRuleset(state) {
+        var rs = state.ruleset;
+        if (!rs || !$("ruleset-name")) return;
+        $("ruleset-name").textContent = rs.name;
+        $("ruleset-description").textContent = rs.description;
+        var list = $("ruleset-summary");
+        list.replaceChildren();
+        rs.summary.forEach(function (row) {
+            list.appendChild(el("dt", null, row.label));
+            list.appendChild(el("dd", null, row.value));
+        });
+        if ($("header-ruleset")) $("header-ruleset").textContent = rs.name + " \u00b7";
+    }
+
     function isMe(name) {
         return me && name && name.toLowerCase() === me.name.toLowerCase();
     }
@@ -216,6 +239,7 @@
 
         initSeat(function (state) {
             if (state.status === "in_progress") { goTo("game", state.join_code); return; }
+            renderRuleset(state);
 
             var list = $("lobby-players");
             list.replaceChildren();
@@ -261,36 +285,45 @@
 
     var SQUARE_ICONS = {
         chance: "?",
-        community_chest: "✉",
+        community_chest: "\u2709",
         station: "\u{1F686}",
-        utility: "⚡",
-        tax: "£",
-        jail: "▓",
-        go_to_jail: "→",
+        utility: "\u26a1",
+        tax: "\u00a3",
+        jail: "\u2593",
+        go_to_jail: "\u2192",
         free_parking: "P",
-        go: "←"
+        go: "\u2190"
     };
 
     var OWNABLE = { property: true, station: true, utility: true };
+    var currentGroups = {};    // colour groups of the board being shown
 
     var boardBuiltFor = null;  // board signature, so we only rebuild on change
     var squareNodes = [];      // token holder per square index
     var squareEls = [];        // whole square element per square index
     var buildingNodes = [];    // houses / hotel holder per square index
+    var potNodes = [];         // pot display per pooled square index
     var latestState = null;    // most recent game_state, for dialogs
 
+    // Colour for a property's group: from the board file, else the CSS palette.
     function groupColour(sq) {
         var group = sq.attributes && sq.attributes.group;
-        return group ? "var(--group-" + group + ", #999)" : null;
+        if (!group) return null;
+        var info = currentGroups[group];
+        return (info && info.colour) || "var(--group-" + group + ", #999)";
     }
 
-    function hotelLevel(state) { return (state && state.rules && state.rules.hotel_level) || 5; }
+    function plural(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
 
-    function buildingText(sq, state) {
+    function buildingText(sq) {
         var a = sq.attributes || {};
-        if (!a.houses) return "";
-        if (a.houses >= hotelLevel(state)) return "Hotel";
-        return a.houses + (a.houses === 1 ? " house" : " houses");
+        if (a.hotels) return plural(a.hotels, "hotel");
+        if (a.houses) return plural(a.houses, "house");
+        return "";
+    }
+
+    function moneyList(values) {
+        return [].concat(values).map(function (v) { return formatMoney(v); }).join(", ");
     }
 
     // Tooltip text: name, type, price, rent, buildings and owner.
@@ -299,20 +332,25 @@
         var parts = [sq.name + " (" + sq.type.replace(/_/g, " ") + ")"];
         if (a.price) parts.push("Price " + formatMoney(a.price));
         if (sq.type === "property" && a.rent) parts.push("Rent " + formatMoney(a.rent));
-        if (sq.type === "property" && a.house_rents) {
-            parts.push("With houses: " + String(a.house_rents).split("/").map(function (r) {
-                return formatMoney(r);
-            }).join(", ") + " (last is a hotel)");
-            if (a.house_cost) parts.push("Houses cost " + formatMoney(a.house_cost) + " each");
+        if (sq.type === "property" && a.house_rents) parts.push("With houses: " + moneyList(a.house_rents));
+        if (sq.type === "property" && a.hotel_rents) parts.push("With hotels: " + moneyList(a.hotel_rents));
+        if (sq.type === "property" && a.house_cost) {
+            parts.push("Houses cost " + formatMoney(a.house_cost) +
+                (a.hotel_cost ? ", hotels " + formatMoney(a.hotel_cost) : ""));
         }
-        if (sq.type === "station" && a.rent) parts.push("Rent from " + formatMoney(a.rent));
-        if (sq.type === "utility" && a.dice_multiplier) {
-            parts.push("Rent " + a.dice_multiplier + "× dice (" +
-                (a.full_set_dice_multiplier || a.dice_multiplier) + "× with all utilities)");
+        if (sq.type === "station" && a.rents) parts.push("Rent by stations owned: " + moneyList(a.rents));
+        if (sq.type === "utility" && a.dice_multipliers) {
+            parts.push("Rent: dice \u00d7 " + [].concat(a.dice_multipliers).join(" / \u00d7 ") +
+                " (by utilities owned)");
         }
         if (sq.type === "tax" && a.amount) parts.push("Pay " + formatMoney(a.amount));
+        if (a.stakeholder) {
+            parts.push(a.max_stakes + " stakes at " + formatMoney(a.buy_in) + " each");
+            parts.push("Pot " + formatMoney(a.pot || 0));
+            (a.stakes || []).forEach(function (st) { parts.push(st.player + ": " + st.percent + "%"); });
+        }
         if (a.owner) parts.push("Owned by " + a.owner);
-        if (a.houses) parts.push(buildingText(sq, state));
+        if (a.houses || a.hotels) parts.push(buildingText(sq));
         if (a.mortgaged) parts.push("Mortgaged");
         return parts.join("\n");
     }
@@ -326,6 +364,7 @@
         squareNodes = [];
         squareEls = [];
         buildingNodes = [];
+        potNodes = [];
 
         board.squares.forEach(function (sq) {
             var cell = squareCell(sq.index, n);
@@ -343,12 +382,17 @@
                 node.appendChild(band);
             }
             node.appendChild(el("div", "sq-name", sq.name));
-            if (SQUARE_ICONS[sq.type] && sq.type !== "property") {
-                node.appendChild(el("div", "sq-icon", SQUARE_ICONS[sq.type]));
-            }
             var a = sq.attributes || {};
+            var icon = a.icon || SQUARE_ICONS[sq.type];
+            if (icon && sq.type !== "property") node.appendChild(el("div", "sq-icon", icon));
             var cost = OWNABLE[sq.type] ? a.price : (sq.type === "tax" ? a.amount : null);
             if (cost) node.appendChild(el("div", "sq-price", formatMoney(cost)));
+            if (a.stakeholder) {
+                node.classList.add("pooled");
+                var pot = el("div", "sq-pot");
+                potNodes[sq.index] = pot;
+                node.appendChild(pot);
+            }
             var tokens = el("div", "tokens");
             node.appendChild(tokens);
             container.appendChild(node);
@@ -386,8 +430,21 @@
             var holder = buildingNodes[sq.index];
             if (holder) {
                 holder.replaceChildren();
-                if (a.houses >= hotelLevel(state)) holder.appendChild(el("span", "hotel"));
-                else for (var i = 0; i < (a.houses || 0); i++) holder.appendChild(el("span", "house"));
+                var i;
+                for (i = 0; i < (a.hotels || 0); i++) holder.appendChild(el("span", "hotel"));
+                for (i = 0; i < (a.houses || 0); i++) holder.appendChild(el("span", "house"));
+            }
+
+            // Pooled squares: the pot, and a dot per stakeholder in their colour.
+            var pot = potNodes[sq.index];
+            if (pot) {
+                pot.replaceChildren(el("span", null, "Pot " + formatMoney(a.pot || 0)));
+                (a.stakes || []).forEach(function (st) {
+                    var dot = el("span", "stake-dot");
+                    dot.style.background = colours[st.player] || "#666";
+                    dot.title = st.player + " " + st.percent + "%";
+                    pot.appendChild(dot);
+                });
             }
         });
     }
@@ -463,13 +520,16 @@
             indicator.textContent = "Your turn! Roll the dice.";
         } else if (decision && decision.type === "buy") {
             indicator.textContent = state.current_player + " is deciding whether to buy " + decision.square;
+        } else if (decision && decision.type === "buy_stake") {
+            indicator.textContent = state.current_player + " is deciding whether to buy a stake in " +
+                decision.square;
         } else if (decision && decision.type === "debt") {
             indicator.textContent = state.current_player + " owes " + formatMoney(decision.amount) +
                 " and must raise money";
         } else if (state.current_player) {
             indicator.textContent = state.current_player + "'s turn";
         } else {
-            indicator.textContent = "Waiting for players…";
+            indicator.textContent = "Waiting for players\u2026";
         }
 
         var canRoll = myTurn && state.turn_state === "waiting_to_roll";
@@ -477,7 +537,7 @@
         $("roll-btn").textContent = myTurn && self.in_jail ? "Roll for doubles" : "Roll dice";
 
         renderJail(state, self, canRoll && self.in_jail);
-        renderBuy(state, self, myTurn && decision && decision.type === "buy");
+        renderBuy(state, self, myTurn && decision && (decision.type === "buy" || decision.type === "buy_stake"));
         renderDebt(state, self, myTurn && decision && decision.type === "debt");
     }
 
@@ -498,7 +558,10 @@
         $("decision").hidden = !show;
         if (!show) return;
         var d = state.pending_decision;
-        $("decision-text").textContent = "Buy " + d.square + " for " + formatMoney(d.price) + "?";
+        $("decision-text").textContent = d.type === "buy_stake"
+            ? "Buy a " + d.percent + "% stake in " + d.square + " for " + formatMoney(d.price) + "? (" +
+              plural(d.stakes_left, "stake") + " left)"
+            : "Buy " + d.square + " for " + formatMoney(d.price) + "?";
         $("buy-btn").disabled = !self || self.money < d.price;
         $("decline-btn").disabled = false;
     }
@@ -530,11 +593,22 @@
             if (p.jail_cards) info.appendChild(el("span", null, "\u{1F511} " + p.jail_cards + " jail card" +
                 (p.jail_cards > 1 ? "s" : "")));
             if (p.debt) info.appendChild(el("span", "is-negative", "Owes " + formatMoney(p.debt)));
+            if (state.rules.must_lap_before_buying && !p.laps && !p.bankrupt && !p.left) {
+                info.appendChild(el("span", null, "No lap yet: can't buy"));
+            }
             li.appendChild(info);
-            if (props.length) {
+            var stakes = (p.stakes || []).filter(function (st) { return st.board_id === 0; });
+            if (props.length || stakes.length) {
                 var ul = el("ul", "props");
+                stakes.forEach(function (st) {
+                    var chip = el("li", "prop-chip prop-stake",
+                        board.squares[st.index].name + " " + st.percent + "%");
+                    chip.style.setProperty("--chip", "#7b1fa2");
+                    chip.title = squareTitle(board.squares[st.index], state);
+                    ul.appendChild(chip);
+                });
                 props.forEach(function (sq) {
-                    var label = sq.name + (sq.attributes.houses ? " (" + buildingText(sq, state) + ")" : "");
+                    var label = sq.name + (buildingText(sq) ? " (" + buildingText(sq) + ")" : "");
                     var chip = el("li", "prop-chip", label);
                     chip.style.setProperty("--chip", groupColour(sq) || "#777");
                     if (sq.attributes.mortgaged) chip.classList.add("is-mortgaged");
@@ -565,7 +639,7 @@
             var li = el("li", "my-prop");
             li.style.setProperty("--chip", groupColour(sq) || "#777");
             var label = el("div", "my-prop-name", sq.name);
-            var status = buildingText(sq, state) || (sq.attributes.mortgaged ? "Mortgaged" : "");
+            var status = buildingText(sq) || (sq.attributes.mortgaged ? "Mortgaged" : "");
             if (status) label.appendChild(el("span", "my-prop-status", status));
             li.appendChild(label);
 
@@ -581,7 +655,10 @@
                 buttons.appendChild(b);
             }
             if (sq.type === "property" && sq.attributes.house_cost) {
-                add("Build " + formatMoney(act.build_cost), "build_house", act.can_build);
+                add("House " + formatMoney(act.build_cost), "build_house", act.can_build);
+                if (state.rules.max_hotels_per_property) {
+                    add("Hotel " + formatMoney(act.hotel_cost), "build_hotel", act.can_build_hotel);
+                }
                 add("Sell +" + formatMoney(act.sell_value), "sell_house", act.can_sell);
             }
             if (sq.attributes.mortgaged) {
@@ -717,7 +794,7 @@
         var list = $("final-standings");
         list.replaceChildren();
         (state.standings || []).forEach(function (row) {
-            var li = el("li", null, row.name + " — net worth " + formatMoney(row.net_worth));
+            var li = el("li", null, row.name + " \u2014 net worth " + formatMoney(row.net_worth));
             if (row.bankrupt) li.appendChild(el("span", "tag", "bankrupt"));
             else if (row.left) li.appendChild(el("span", "tag", "left"));
             list.appendChild(li);
@@ -753,11 +830,13 @@
 
             // Phase 3 shows only the outer board (id 0); Phase 4 renders all.
             var board = state.boards["0"];
+            currentGroups = board.groups || {};
             var signature = board.size + ":" + board.name;
             if (boardBuiltFor !== signature) {
                 buildBoard(board);
                 boardBuiltFor = signature;
             }
+            renderRuleset(state);
             renderOwnership(state, board);
             renderTokens(state, 0);
             renderCard(state);
