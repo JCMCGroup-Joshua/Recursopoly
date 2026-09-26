@@ -5,9 +5,10 @@ ignored) and exposes the values as a :class:`Config` object. Any key that is
 missing or malformed falls back to the default in :data:`DEFAULTS`, so the
 server always starts with a usable configuration.
 
-Later phases add keys (board_count, per-board Go salaries, ticket prices,
-turn timer, ...) simply by adding entries to :data:`DEFAULTS`; values are
-converted to the same type as their default.
+config.txt holds server settings only. Everything that changes how the game
+plays comes from the rule set the host picks (see rulesets.py). New server
+settings are added as entries in :data:`DEFAULTS`; values are converted to
+the same type as their default.
 """
 
 import logging
@@ -18,30 +19,19 @@ log = logging.getLogger("recursopoly.config")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG_PATH = os.path.join(BASE_DIR, "config.txt")
 
-# Every known setting and its default. The type of each default decides how
-# the text value from config.txt is converted.
+# Every known server setting and its default. The type of each default
+# decides how the text value from config.txt is converted. Game values
+# (money, building limits, house rules, ...) live in rule sets instead: see
+# rulesets/ and rulesets.py.
 DEFAULTS = {
-    "starting_money": 1500,
-    "go_salary": 200,
-    "full_group_rent_multiplier": 2,
-    "jail_fine": 50,
-    "max_jail_turns": 3,
-    "max_houses": 4,
-    "house_sell_percent": 50,
-    "mortgage_percent": 50,
-    "unmortgage_interest_percent": 10,
-    "board_size": 40,
-    "min_players": 2,
-    "max_players": 6,
-    "join_code_length": 6,
-    "max_doubles": 3,
-    "disconnect_grace_seconds": 5,
     "host": "0.0.0.0",
     "port": 5000,
     "debug": False,
+    "join_code_length": 6,
+    "disconnect_grace_seconds": 5,
     "scores_file": "scores.csv",
-    "boards_dir": "boards",
-    "cards_dir": "cards",
+    "rulesets_dir": "rulesets",
+    "default_ruleset": "classic",
 }
 
 _TRUE_WORDS = {"1", "true", "yes", "on"}
@@ -105,13 +95,10 @@ class Config:
         self._sanity_check()
 
     def _sanity_check(self):
-        """Clamp values that would make the game unplayable."""
+        """Clamp values that would make the server unusable."""
         v = self._values
-        v["min_players"] = max(1, v["min_players"])
-        v["max_players"] = max(v["min_players"], v["max_players"])
-        v["board_size"] = max(4, v["board_size"])
         v["join_code_length"] = max(4, v["join_code_length"])
-        v["max_doubles"] = max(1, v["max_doubles"])
+        v["disconnect_grace_seconds"] = max(0, v["disconnect_grace_seconds"])
 
     def get(self, key, default=None):
         return self._values.get(key, default)
