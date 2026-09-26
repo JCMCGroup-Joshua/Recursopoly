@@ -142,15 +142,15 @@ def seat_socket(game, player, rejoined):
     })
 
 
-def schedule_skip_check(code, delay):
-    """After ``delay`` seconds, skip the current turn if its player is still
-    disconnected."""
+def schedule_disconnect_check(code, name, delay):
+    """After ``delay`` seconds, announce the player as gone and skip their
+    turn if they still haven't reconnected."""
 
     def worker():
         socketio.sleep(delay + 0.2)
         with state_lock:
             game = games.get(code)
-            if game and game.skip_turn_if_disconnected(grace=CONFIG.disconnect_grace_seconds):
+            if game and game.check_disconnect(name, grace=delay):
                 broadcast_state(game)
 
     socketio.start_background_task(worker)
@@ -303,8 +303,7 @@ def on_disconnect(*_args):
             return
         game.mark_disconnected(name)
         broadcast_state(game)
-        if game.status == GameStatus.IN_PROGRESS and game.current_player is player:
-            schedule_skip_check(code, CONFIG.disconnect_grace_seconds)
+        schedule_disconnect_check(code, player.name, CONFIG.disconnect_grace_seconds)
         cleanup_if_abandoned(game)
 
 

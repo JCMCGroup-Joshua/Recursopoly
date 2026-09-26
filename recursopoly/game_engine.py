@@ -483,7 +483,9 @@ class Game:
         was_connected = player.connected
         player.connected = True
         player.disconnected_since = None
-        if not was_connected:
+        # Only announce the return if the absence was announced; quick page
+        # changes (lobby -> game) should not clutter the event log.
+        if not was_connected and player.attributes.pop("announced_offline", False):
             self._say(f"{player.name} reconnected.")
 
     def mark_disconnected(self, name, now=None):
@@ -494,7 +496,25 @@ class Game:
             return
         player.connected = False
         player.disconnected_since = time.time() if now is None else now
-        self._say(f"{player.name} disconnected.")
+
+    def check_disconnect(self, name, now=None, grace=0):
+        """Called once a disconnected player's grace period is over.
+
+        If they are still gone, announce it in the log and skip their turn if
+        it is theirs. Returns True if anything changed.
+        """
+        player = self.get_player(name)
+        if player is None or player.connected or player.disconnected_since is None:
+            return False
+        now = time.time() if now is None else now
+        if now - player.disconnected_since < grace:
+            return False
+        changed = False
+        if not player.left and not player.attributes.get("announced_offline"):
+            player.attributes["announced_offline"] = True
+            self._say(f"{player.name} disconnected.")
+            changed = True
+        return self.skip_turn_if_disconnected(now=now, grace=grace) or changed
 
     def remove_player(self, name):
         """A player leaves voluntarily.

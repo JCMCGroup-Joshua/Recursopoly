@@ -195,6 +195,18 @@ class TurnTests(unittest.TestCase):
         self.assertTrue(self.game.skip_turn_if_disconnected(now=106, grace=5))
         self.assertEqual(self.game.current_player.name, "Bob")
 
+    def test_disconnect_announced_only_after_grace(self):
+        self.game.mark_disconnected("Bob", now=100)
+        messages = lambda: [line["message"] for line in self.game.log]
+        self.assertNotIn("Bob disconnected.", messages())
+        self.game.add_player("Bob")  # quick page change: no log noise
+        self.assertNotIn("Bob reconnected.", messages())
+        self.game.mark_disconnected("Bob", now=200)
+        self.assertTrue(self.game.check_disconnect("Bob", now=206, grace=5))
+        self.game.add_player("Bob")
+        self.assertIn("Bob disconnected.", messages())
+        self.assertIn("Bob reconnected.", messages())
+
     def test_end_game_logs_final_scores(self):
         with self.assertRaises(GameError):
             self.game.end("Bob")
