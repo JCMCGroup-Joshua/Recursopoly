@@ -24,6 +24,12 @@ DEFAULTS = {
     "starting_money": 1500,
     "go_salary": 200,
     "full_group_rent_multiplier": 2,
+    "jail_fine": 50,
+    "max_jail_turns": 3,
+    "max_houses": 4,
+    "house_sell_percent": 50,
+    "mortgage_percent": 50,
+    "unmortgage_interest_percent": 10,
     "board_size": 40,
     "min_players": 2,
     "max_players": 6,
@@ -35,6 +41,7 @@ DEFAULTS = {
     "debug": False,
     "scores_file": "scores.csv",
     "boards_dir": "boards",
+    "cards_dir": "cards",
 }
 
 _TRUE_WORDS = {"1", "true", "yes", "on"}

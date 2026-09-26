@@ -1,0 +1,38 @@
+# Recursopoly Chance deck
+# ---------------------------------------------------------------
+# One card per line:
+#
+#     text | effect | key=value; key=value
+#
+# Effects:
+#   move_to              square=<name> (on the player's current board);
+#                        collects the Go salary if Go is passed
+#   move_by              steps=<n> (negative moves backwards, never pays Go)
+#   move_to_nearest      type=station|utility; optional rent_multiplier=<n>
+#                        (rent owed there is multiplied by n)
+#   collect              amount=<n> from the bank
+#   pay                  amount=<n> to the bank
+#   collect_from_each    amount=<n> from every other player
+#   pay_each             amount=<n> to every other player
+#   repairs              house=<n>; hotel=<n> per building owned
+#   go_to_jail           straight to jail, without passing Go
+#   get_out_of_jail_free kept until used (or traded back to the deck)
+#
+# The deck is shuffled at the start of every game.
+
+Advance to GO. Collect £200 | move_to | square=GO
+Advance to Trafalgar Square. If you pass GO, collect £200 | move_to | square=Trafalgar Square
+Advance to Pall Mall. If you pass GO, collect £200 | move_to | square=Pall Mall
+Take a trip to Marylebone Station. If you pass GO, collect £200 | move_to | square=Marylebone Station
+Advance to Mayfair | move_to | square=Mayfair
+Advance to the nearest station and pay the owner twice the rent | move_to_nearest | type=station; rent_multiplier=2
+Advance to the nearest station and pay the owner twice the rent | move_to_nearest | type=station; rent_multiplier=2
+Advance to the nearest utility | move_to_nearest | type=utility
+Go back three spaces | move_by | steps=-3
+Go to Jail. Move directly to Jail. Do not pass GO | go_to_jail
+Get Out of Jail Free. This card may be kept until needed | get_out_of_jail_free
+Bank pays you a dividend of £50 | collect | amount=50
+Your building loan matures. Collect £150 | collect | amount=150
+Speeding fine £15 | pay | amount=15
+Make general repairs on all your property: £25 per house, £100 per hotel | repairs | house=25; hotel=100
+You have been elected chairman of the board. Pay each player £50 | pay_each | amount=50

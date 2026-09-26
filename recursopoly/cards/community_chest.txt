@@ -1,0 +1,21 @@
+# Recursopoly Community Chest deck
+# ---------------------------------------------------------------
+# Same format as chance.txt: text | effect | key=value; key=value
+# The deck is shuffled at the start of every game.
+
+Advance to GO. Collect £200 | move_to | square=GO
+Bank error in your favour. Collect £200 | collect | amount=200
+Doctor's fees. Pay £50 | pay | amount=50
+From sale of stock you get £50 | collect | amount=50
+Get Out of Jail Free. This card may be kept until needed | get_out_of_jail_free
+Go to Jail. Move directly to Jail. Do not pass GO | go_to_jail
+Holiday fund matures. Collect £100 | collect | amount=100
+Income tax refund. Collect £20 | collect | amount=20
+It is your birthday. Collect £10 from each player | collect_from_each | amount=10
+Life insurance matures. Collect £100 | collect | amount=100
+Hospital fees. Pay £100 | pay | amount=100
+School fees. Pay £50 | pay | amount=50
+Receive £25 consultancy fee | collect | amount=25
+You are assessed for street repairs: £40 per house, £115 per hotel | repairs | house=40; hotel=115
+You have won second prize in a beauty contest. Collect £10 | collect | amount=10
+You inherit £100 | collect | amount=100
