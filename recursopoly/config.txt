@@ -1,0 +1,37 @@
+# Recursopoly configuration
+# ---------------------------------------------------------------
+# Simple key=value settings. Lines starting with # are comments and
+# blank lines are ignored. Any key left out falls back to a default
+# defined in config.py.
+
+# --- Money --------------------------------------------------------
+starting_money=1500
+go_salary=200
+
+# --- Board --------------------------------------------------------
+# Number of squares on the outer board. boards/board_0.txt is padded
+# or trimmed to this length if it defines a different number.
+board_size=40
+
+# --- Players ------------------------------------------------------
+min_players=2
+max_players=6
+
+# --- Join codes ---------------------------------------------------
+join_code_length=6
+
+# --- Turns --------------------------------------------------------
+# Rolling this many doubles in a row sends the player to jail.
+max_doubles=3
+# Seconds a player may be disconnected (e.g. while their page
+# reloads) before their turn is skipped.
+disconnect_grace_seconds=5
+
+# --- Server -------------------------------------------------------
+host=0.0.0.0
+port=5000
+debug=false
+
+# --- Files --------------------------------------------------------
+scores_file=scores.csv
+boards_dir=boards

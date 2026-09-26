@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+# Runtime score log, created automatically by the server
+recursopoly/scores.csv
