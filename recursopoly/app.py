@@ -32,7 +32,11 @@ CONFIG = load_config()
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = CONFIG.get("secret_key") or "recursopoly-dev"
-socketio = SocketIO(app, async_mode="threading")
+# manage_session=False: Recursopoly keeps no Flask session data (players are
+# tracked by socket id and seat token). It also avoids a crash on Flask 3.1.3+
+# with Flask-SocketIO < 5.6.1, which try to assign the now read-only
+# RequestContext.session on every event.
+socketio = SocketIO(app, async_mode="threading", manage_session=False)
 
 score_logger = ScoreLogger(CONFIG.path("scores_file"))
 
