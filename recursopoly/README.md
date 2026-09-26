@@ -8,7 +8,8 @@ smaller, pricier boards nested inside the outer one, linked by train
 stations.
 
 The game currently includes **Phase 1** (movement, turns and real-time
-multiplayer) and **Phase 2** (properties, buying, rent and tax). Everything
+multiplayer), **Phase 2** (properties, buying, rent and tax) and **Phase 3**
+(cards, jail, houses, mortgages, trading and bankruptcy). Everything
 runs on Flask and Flask-SocketIO. There is **no database**: settings and
 board layouts are plain `.txt` files, and scores are appended to a `.csv`
 file.
@@ -47,8 +48,44 @@ file.
 - Owned squares are outlined in the owner's colour, each player's
   properties are listed under their name, and hovering a square shows its
   price, rent and owner.
-- Money can go negative (shown in red). Bankruptcy arrives in Phase 3.
-- A player who leaves keeps their squares, but no rent is charged on them.
+
+## Features (Phase 3)
+
+- **Chance and Community Chest.** Decks are defined in `cards/*.txt` and
+  shuffled for every game. The last card drawn is shown in the middle of
+  the board.
+- **Jail.** You go to jail for landing on Go To Jail, drawing a Go to Jail
+  card, or rolling three doubles in a row. On your turn you can:
+  - pay the fine (`jail_fine`, £50) and roll normally,
+  - use a Get Out of Jail Free card, or
+  - roll for doubles. Doubles free you (with no extra roll). After
+    `max_jail_turns` (3) failed tries you must pay the fine and move.
+- **Houses and hotels.** Once you own a whole colour group you can build on
+  your turn:
+  - Houses must be built evenly across the group, with a hotel after 4
+    houses (`max_houses`).
+  - Rent comes from each property's `house_rents`.
+  - Selling returns half the cost (`house_sell_percent`).
+- **Mortgages.** Mortgaging pays out half the price (`mortgage_percent`).
+  Unmortgaging costs that plus 10% (`unmortgage_interest_percent`).
+  Mortgaged squares charge no rent, and a group must have no buildings
+  before any of it is mortgaged.
+- **Trading.** Offer any mix of properties and money to another player at
+  any time. They accept or reject, or you withdraw the offer. A trade is
+  checked again when it's accepted. Properties in a group with buildings
+  can't be traded.
+- **Debt and bankruptcy.** If you can't afford a payment, nothing is paid
+  and the turn waits. Sell houses, mortgage or trade to raise the money,
+  then pay, or declare bankruptcy.
+  - When you go bankrupt, your cash, properties and jail cards go to the
+    player you owe. If you owe the bank (or several players), they go back
+    to the bank instead.
+  - Debts run up on someone else's turn (for example a birthday card) are
+    settled at the start of your next turn.
+- **Winning.** The last player standing wins. If the host ends the game
+  early, the highest **net worth** (money + property value + buildings at
+  cost, minus debts) wins. A player who leaves mid-game is out, and their
+  properties go back to the bank.
 
 ## Requirements
 
@@ -76,6 +113,12 @@ Missing or invalid keys fall back to defaults.
 | `starting_money` | 1500 | Money each player starts with |
 | `go_salary` | 200 | Paid for passing or landing on Go |
 | `full_group_rent_multiplier` | 2 | Base rent multiplier when one player owns a whole colour group |
+| `jail_fine` | 50 | Fine to leave jail |
+| `max_jail_turns` | 3 | Tries at rolling doubles before the fine must be paid |
+| `max_houses` | 4 | Houses per property before the next build is a hotel |
+| `house_sell_percent` | 50 | Refund when selling a house or hotel |
+| `mortgage_percent` | 50 | Percentage of the price paid out for a mortgage |
+| `unmortgage_interest_percent` | 10 | Interest added when unmortgaging |
 | `board_size` | 40 | Squares on the outer board (`board_0.txt` is padded or trimmed to fit) |
 | `min_players` / `max_players` | 2 / 6 | Players needed to start / allowed to join |
 | `join_code_length` | 6 | Length of generated join codes |
@@ -85,6 +128,7 @@ Missing or invalid keys fall back to defaults.
 | `debug` | false | Flask debug mode |
 | `scores_file` | scores.csv | Where scores are logged |
 | `boards_dir` | boards | Folder of board layout files |
+| `cards_dir` | cards | Folder of card decks |
 
 ### Board files
 
@@ -100,15 +144,36 @@ third column holds attributes:
 
 | Type | Attributes |
 | --- | --- |
-| `property` | `group` (colour set), `price`, `rent` (base rent) |
+| `property` | `group` (colour set), `price`, `rent` (base rent), `house_rents` (rent with 1-4 houses then a hotel, e.g. `10/30/90/160/250`), `house_cost` |
 | `station` | `price`, `rent` (rent with one station) |
 | `utility` | `price`, `dice_multiplier`, `full_set_dice_multiplier` |
 | `tax` | `amount` |
 
-For example: `Mayfair | property | group=dark_blue; price=400; rent=50`.
+For example:
+`Mayfair | property | group=dark_blue; price=400; rent=50; house_rents=200/600/1400/1700/2000; house_cost=200`.
 Squares without a `price` can't be bought. Lines starting with `#` are
 comments, and lines starting with `@` set board metadata such as
 `@name=Outer Ring`.
+
+### Card files
+
+Each `cards/<deck>.txt` is one deck, drawn by squares of the same type
+(`chance.txt` for `chance` squares). One card per line:
+
+```
+text | effect | key=value; key=value
+```
+
+| Effect | Parameters |
+| --- | --- |
+| `move_to` | `square=<name>` (collects Go salary if Go is passed) |
+| `move_by` | `steps=<n>` (negative moves back and never pays Go) |
+| `move_to_nearest` | `type=station` or `utility`, optional `rent_multiplier` |
+| `collect` / `pay` | `amount` (from / to the bank) |
+| `collect_from_each` / `pay_each` | `amount` (from / to every other player) |
+| `repairs` | `house`, `hotel` (charge per building) |
+| `go_to_jail` | none |
+| `get_out_of_jail_free` | none (kept until used) |
 
 ## Run
 
@@ -134,10 +199,19 @@ devices on your network).
 5. **Buy and collect rent.** Land on an unowned property, station or
    utility to get a **Buy** / **Decline** prompt. Other players pay you
    rent when they land on your squares.
-6. **Rejoin.** If you drop out, rejoin from the home page with the same code
-   and name.
-7. **Finish.** The host clicks **End game**. Everyone sees the final
-   standings, and each player's money is logged as their score.
+6. **Build and mortgage.** On your turn, use **Your properties** to build
+   houses and hotels, sell them, or mortgage and unmortgage squares.
+7. **Trade.** Click **Propose a trade** to offer properties and money to
+   another player. Offers to you appear under **Trades** with **Accept**
+   and **Reject**.
+8. **In jail?** Pay the fine, use a card, or roll for doubles.
+9. **Can't pay?** Raise the money, then click **Pay**, or **Declare
+   bankruptcy**.
+10. **Rejoin.** If you drop out, rejoin from the home page with the same
+    code and name.
+11. **Finish.** The game ends when one player is left, or when the host
+    clicks **End game** (highest net worth wins). Everyone sees the final
+    standings.
 
 ## Score log
 
@@ -148,10 +222,21 @@ appended to. Columns:
 timestamp, join_code, event_type, player_name, board_id, position, money, details
 ```
 
-Events are `game_started`, `roll`, `passed_go`, `jailed`, `purchase`,
-`rent_paid`, `tax_paid` and `game_ended`. The game writes one `game_ended` row per player, with their
-final score and rank. Writes are guarded by a lock, so several games can log
-at once.
+Events:
+
+- **Turns:** `game_started`, `roll`, `passed_go`
+- **Buying and paying:** `purchase`, `rent_paid`, `tax_paid`, `debt_paid`
+- **Cards and jail:** `card_drawn`, `jailed`, `released_from_jail`,
+  `jail_fine_paid`, `jail_card_used`
+- **Buildings and mortgages:** `house_built`, `house_sold`, `mortgaged`,
+  `unmortgaged`
+- **Trading:** `trade_proposed`, `trade_accepted`, `trade_rejected`
+- **Endings:** `bankrupt`, `game_ended`
+
+When a game ends, one `game_ended` row is written per player. Its details
+hold their net worth, finishing position and result (`winner`, `finished`,
+`bankrupt` or `left`). Writes are guarded by a lock, so several games can
+log at once.
 
 ## Project layout
 
@@ -163,7 +248,7 @@ recursopoly/
     logger.py           Appends rows to scores.csv
     config.txt          Settings
     boards/board_0.txt  Outer board layout
-    cards/              Chance / Community Chest decks (Phase 3)
+    cards/              Chance and Community Chest decks
     templates/          index.html, lobby.html, game.html
     static/             recursopoly.css, recursopoly.js
     tests/              Unit tests for the engine
@@ -179,23 +264,22 @@ python -m unittest discover tests
 
 The code is shaped so later phases add to it instead of rewriting it.
 
-Phase 2 is built on these hooks:
+Phases 2 and 3 are built on these hooks:
 
-- Buy, rent and tax live in `Game._resolve_landing()`.
-- A buy offer sets `Game.pending_decision` and pauses the turn in
-  `TurnState.AWAITING_DECISION`. `Game.decide()` (the `decide` socket
-  event) resumes it.
-- Owners are stored in `Square.attributes["owner"]`, and each player's
-  properties are derived from them in the broadcast state.
+- Landing effects (buy, rent, tax, cards, Go To Jail) live in
+  `Game._resolve_landing()`.
+- Choices pause the turn in `TurnState.AWAITING_DECISION` with a
+  `Game.pending_decision` (`buy` or `debt`). `Game.decide()` (the `decide`
+  socket event) resumes it.
+- Every payment goes through `Game._pay()`. A payment that can't be covered
+  becomes a debt instead of a negative balance.
+- Ownership, houses and mortgages are stored in `Square.attributes`.
+  `Game.property_actions()` tells the page what each player may do.
+- Each rule action (`build_house`, `mortgage`, `propose_trade`, ...) is a
+  `Game` method with a matching socket event in `app.py`.
 
 Still to come:
 
-- **Phase 3: full classic rules**
-  - Card decks go in `cards/` as `.txt` files, loaded next to the boards.
-  - Jail state is already flagged in `Player.attributes["in_jail"]`.
-  - `Game.standings()` switches from money to net worth.
-  - Trading, building and mortgaging become new `Game` methods, each with a
-    socket event.
 - **Phase 4: nested boards and train travel**
   - Add `boards/board_1.txt`, `board_2.txt` and so on. `load_boards()`
     already loads every `board_<n>.txt` into `Game.boards`, keyed by
