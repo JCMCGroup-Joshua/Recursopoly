@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Recursopoly</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/recursopoly.css') }}">
+</head>
+<body data-page="index">
+    <header class="site-header">
+        <h1 class="logo">Recursopoly</h1>
+        <p class="tagline">Boards within boards. Roll, move and pass Go with your friends.</p>
+    </header>
+
+    <main class="landing">
+        <div id="error" class="banner banner-error" {% if not error %}hidden{% endif %}>{{ error or '' }}</div>
+
+        <section class="card">
+            <h2>Create game</h2>
+            <p>Start a new game of Recursopoly and share the join code with your friends.</p>
+            <form id="create-form" autocomplete="off">
+                <label for="create-name">Your name</label>
+                <input id="create-name" name="name" maxlength="20" required placeholder="e.g. Alice">
+                <button type="submit" class="btn btn-primary">Create game</button>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Join with code</h2>
+            <p>Got a join code? Enter it with your name. Use the same name to rejoin after a disconnect.</p>
+            <form id="join-form" autocomplete="off">
+                <label for="join-code">Join code</label>
+                <input id="join-code" name="code" maxlength="12" required placeholder="e.g. K7QX2M"
+                       class="code-input">
+                <label for="join-name">Your name</label>
+                <input id="join-name" name="name" maxlength="20" required placeholder="e.g. Bob">
+                <button type="submit" class="btn btn-primary">Join game</button>
+            </form>
+        </section>
+    </main>
+
+    <footer class="site-footer">Recursopoly &middot; Phase 1</footer>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='js/recursopoly.js') }}"></script>
+</body>
+</html>

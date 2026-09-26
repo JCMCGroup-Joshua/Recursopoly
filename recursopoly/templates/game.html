@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Recursopoly &middot; Game {{ join_code }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/recursopoly.css') }}">
+</head>
+<body data-page="game" data-join-code="{{ join_code }}">
+    <header class="site-header site-header-compact">
+        <h1 class="logo"><a href="{{ url_for('index') }}">Recursopoly</a></h1>
+        <span class="header-code">Game <strong>{{ join_code }}</strong></span>
+    </header>
+
+    <div id="error" class="banner banner-error" hidden></div>
+
+    <main class="game-layout">
+        <!-- The board is drawn by recursopoly.js from the board data in the
+             game state. Phase 4 adds one of these per nested board. -->
+        <section class="board-wrap">
+            <div id="board" class="board" aria-label="Recursopoly board"></div>
+        </section>
+
+        <aside class="sidebar">
+            <section class="card turn-card">
+                <div id="turn-indicator" class="turn-indicator">Connecting&hellip;</div>
+                <div id="dice" class="dice" aria-live="polite"></div>
+                <button type="button" class="btn btn-primary btn-roll" id="roll-btn" disabled>Roll dice</button>
+            </section>
+
+            <section class="card">
+                <h2>Players</h2>
+                <ul id="game-players" class="player-list"></ul>
+            </section>
+
+            <section class="card log-card">
+                <h2>Event log</h2>
+                <ol id="event-log" class="event-log"></ol>
+            </section>
+
+            <div class="actions">
+                <button type="button" class="btn btn-danger" id="end-btn" hidden>End game</button>
+                <button type="button" class="btn" id="leave-btn">Leave game</button>
+            </div>
+        </aside>
+    </main>
+
+    <div id="game-over" class="overlay" hidden>
+        <div class="card overlay-card">
+            <h2>Game over</h2>
+            <ol id="final-standings" class="standings"></ol>
+            <a class="btn btn-primary" href="{{ url_for('index') }}">Back to Recursopoly</a>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='js/recursopoly.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Recursopoly &middot; Lobby {{ join_code }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/recursopoly.css') }}">
+</head>
+<body data-page="lobby" data-join-code="{{ join_code }}">
+    <header class="site-header">
+        <h1 class="logo"><a href="{{ url_for('index') }}">Recursopoly</a></h1>
+        <p class="tagline">Waiting room</p>
+    </header>
+
+    <main class="lobby">
+        <div id="error" class="banner banner-error" hidden></div>
+
+        <section class="card join-code-card">
+            <p>Share this join code:</p>
+            <div class="join-code" id="join-code">{{ join_code }}</div>
+            <button type="button" class="btn btn-small" id="copy-code">Copy code</button>
+        </section>
+
+        <section class="card">
+            <h2>Players <span id="player-count" class="muted"></span></h2>
+            <ul id="lobby-players" class="player-list"></ul>
+            <p id="lobby-status" class="muted"></p>
+            <div class="actions">
+                <button type="button" class="btn btn-primary" id="start-btn" hidden disabled>Start game</button>
+                <button type="button" class="btn btn-danger" id="end-btn" hidden>Cancel game</button>
+                <button type="button" class="btn" id="leave-btn">Leave</button>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">Recursopoly &middot; Phase 1</footer>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='js/recursopoly.js') }}"></script>
+</body>
+</html>
