@@ -23,6 +23,7 @@ DEFAULT_CONFIG_PATH = os.path.join(BASE_DIR, "config.txt")
 DEFAULTS = {
     "starting_money": 1500,
     "go_salary": 200,
+    "full_group_rent_multiplier": 2,
     "board_size": 40,
     "min_players": 2,
     "max_players": 6,
