@@ -7,7 +7,8 @@ from the game's big idea: **boards within boards**. Later versions add
 smaller, pricier boards nested inside the outer one, linked by train
 stations.
 
-This is **Phase 1**: movement, turns and real-time multiplayer. Everything
+The game currently includes **Phase 1** (movement, turns and real-time
+multiplayer) and **Phase 2** (properties, buying, rent and tax). Everything
 runs on Flask and Flask-SocketIO. There is **no database**: settings and
 board layouts are plain `.txt` files, and scores are appended to a `.csv`
 file.
@@ -29,6 +30,25 @@ file.
   and they can rejoin with the same code and name.
 - The host can end the game at any time. Final scores are written to
   `scores.csv`.
+
+## Features (Phase 2)
+
+- Properties, stations and utilities have prices. Landing on an unowned
+  one offers the active player **Buy** or **Decline**, and the turn waits
+  until they choose. A player who can't afford the price isn't offered it.
+- Landing on a square someone else owns charges rent automatically:
+  - **Properties:** the base rent from the board file. It is doubled
+    (`full_group_rent_multiplier`) when one player owns the whole colour
+    group.
+  - **Stations:** £25 with one station, doubling for each extra station the
+    owner has (£50, £100, £200).
+  - **Utilities:** the dice total × 4, or × 10 when the owner has both.
+- Tax squares deduct a fixed amount.
+- Owned squares are outlined in the owner's colour, each player's
+  properties are listed under their name, and hovering a square shows its
+  price, rent and owner.
+- Money can go negative (shown in red). Bankruptcy arrives in Phase 3.
+- A player who leaves keeps their squares, but no rent is charged on them.
 
 ## Requirements
 
@@ -55,6 +75,7 @@ Missing or invalid keys fall back to defaults.
 | --- | --- | --- |
 | `starting_money` | 1500 | Money each player starts with |
 | `go_salary` | 200 | Paid for passing or landing on Go |
+| `full_group_rent_multiplier` | 2 | Base rent multiplier when one player owns a whole colour group |
 | `board_size` | 40 | Squares on the outer board (`board_0.txt` is padded or trimmed to fit) |
 | `min_players` / `max_players` | 2 / 6 | Players needed to start / allowed to join |
 | `join_code_length` | 6 | Length of generated join codes |
@@ -75,9 +96,19 @@ name | type | key=value; key=value
 
 `type` is one of `go`, `property`, `station`, `utility`, `tax`, `chance`,
 `community_chest`, `jail`, `free_parking` or `go_to_jail`. The optional
-third column holds attributes (Phase 1 uses `group` to colour property
-bands). Lines starting with `#` are comments, and lines starting with `@` set
-board metadata such as `@name=Outer Ring`.
+third column holds attributes:
+
+| Type | Attributes |
+| --- | --- |
+| `property` | `group` (colour set), `price`, `rent` (base rent) |
+| `station` | `price`, `rent` (rent with one station) |
+| `utility` | `price`, `dice_multiplier`, `full_set_dice_multiplier` |
+| `tax` | `amount` |
+
+For example: `Mayfair | property | group=dark_blue; price=400; rent=50`.
+Squares without a `price` can't be bought. Lines starting with `#` are
+comments, and lines starting with `@` set board metadata such as
+`@name=Outer Ring`.
 
 ## Run
 
@@ -100,9 +131,12 @@ devices on your network).
 4. **Take turns.** The **Roll dice** button is enabled only for the active
    player. Rolling doubles gives you another roll. Three doubles in a row
    sends you to jail.
-5. **Rejoin.** If you drop out, rejoin from the home page with the same code
+5. **Buy and collect rent.** Land on an unowned property, station or
+   utility to get a **Buy** / **Decline** prompt. Other players pay you
+   rent when they land on your squares.
+6. **Rejoin.** If you drop out, rejoin from the home page with the same code
    and name.
-6. **Finish.** The host clicks **End game**. Everyone sees the final
+7. **Finish.** The host clicks **End game**. Everyone sees the final
    standings, and each player's money is logged as their score.
 
 ## Score log
@@ -114,8 +148,8 @@ appended to. Columns:
 timestamp, join_code, event_type, player_name, board_id, position, money, details
 ```
 
-Phase 1 events are `game_started`, `roll`, `passed_go`, `jailed` and
-`game_ended`. The game writes one `game_ended` row per player, with their
+Events are `game_started`, `roll`, `passed_go`, `jailed`, `purchase`,
+`rent_paid`, `tax_paid` and `game_ended`. The game writes one `game_ended` row per player, with their
 final score and rank. Writes are guarded by a lock, so several games can log
 at once.
 
@@ -143,19 +177,19 @@ python -m unittest discover tests
 
 ## Where later phases plug in
 
-The Phase 1 code is shaped so later phases add to it instead of rewriting it:
+The code is shaped so later phases add to it instead of rewriting it.
 
-- **Phase 2: properties, buying and rent**
-  - Add `price`, `rent` and similar attributes to squares in the board
-    file. `Square.attributes` already carries them to the engine and the
-    browser.
-  - Implement buy, rent and tax in `Game._resolve_landing()`. For a buy
-    choice, set `turn_state = TurnState.AWAITING_DECISION`: `Game.roll()`
-    already pauses the turn in that state. Add a `Game.decide()` method and a
-    matching socket event in `app.py`.
-  - Owners go in `Square.attributes["owner"]` and holdings in
-    `Player.attributes`.
-  - New log events go through `Game._event()`.
+Phase 2 is built on these hooks:
+
+- Buy, rent and tax live in `Game._resolve_landing()`.
+- A buy offer sets `Game.pending_decision` and pauses the turn in
+  `TurnState.AWAITING_DECISION`. `Game.decide()` (the `decide` socket
+  event) resumes it.
+- Owners are stored in `Square.attributes["owner"]`, and each player's
+  properties are derived from them in the broadcast state.
+
+Still to come:
+
 - **Phase 3: full classic rules**
   - Card decks go in `cards/` as `.txt` files, loaded next to the boards.
   - Jail state is already flagged in `Player.attributes["in_jail"]`.

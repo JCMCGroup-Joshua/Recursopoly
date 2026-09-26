@@ -259,6 +259,21 @@ def on_roll_dice(_data=None):
         broadcast_state(game)
 
 
+@socketio.on("decide")
+def on_decide(data):
+    """The active player answers a pending decision, e.g. {"choice": "buy"}."""
+    data = data or {}
+    with state_lock:
+        game, name = current_session()
+        if game is None:
+            return send_error("You are not in a game.", "no_session")
+        try:
+            game.decide(name, data.get("choice"))
+        except GameError as err:
+            return send_error(str(err), err.code)
+        broadcast_state(game)
+
+
 @socketio.on("end_game")
 def on_end_game(_data=None):
     with state_lock:

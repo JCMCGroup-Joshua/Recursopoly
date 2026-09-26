@@ -7,6 +7,8 @@
 # --- Money --------------------------------------------------------
 starting_money=1500
 go_salary=200
+# Base rent is multiplied by this when one player owns a whole colour group.
+full_group_rent_multiplier=2
 
 # --- Board --------------------------------------------------------
 # Number of squares on the outer board. boards/board_0.txt is padded
