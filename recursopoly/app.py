@@ -14,17 +14,16 @@ import threading
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
 from flask_socketio import SocketIO, emit, join_room, leave_room
 
-from config import load_config
+from config import BASE_DIR, load_config
 from game_engine import (
     Game,
     GameError,
     GameStatus,
     generate_join_code,
-    load_boards,
-    load_decks,
     normalise_join_code,
 )
 from logger import ScoreLogger
+from rulesets import load_rulesets
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("recursopoly")
@@ -52,26 +51,17 @@ seat_sids = {}
 state_lock = threading.RLock()
 
 
-def _load_boards():
-    """Load board files fresh for each game (games may mutate square
-    attributes such as owners in later phases)."""
-    return load_boards(CONFIG.path("boards_dir"), board_sizes={0: CONFIG.board_size})
-
-
-# Fail fast at startup if the board file is broken.
-_startup_boards = _load_boards()
-log.info(
-    "Recursopoly loaded %d board(s); outer board has %d squares",
-    len(_startup_boards), _startup_boards[0].size,
-)
-
-# Chance / Community Chest decks. Cards never change, so every game shares
-# these lists and shuffles its own copy.
-DECKS = load_decks(CONFIG.path("cards_dir"))
-log.info(
-    "Recursopoly loaded card decks: %s",
-    ", ".join(f"{name} ({len(cards)})" for name, cards in DECKS.items()) or "none",
-)
+# Rule sets (rulesets/*.json), each with its board and card decks, loaded and
+# checked at startup so a broken file fails fast. Every new game gets its own
+# copy of the board to play on.
+RULESETS = load_rulesets(CONFIG.path("rulesets_dir"), BASE_DIR)
+DEFAULT_RULESET = CONFIG.default_ruleset if CONFIG.default_ruleset in RULESETS else "classic"
+for _rs in RULESETS.values():
+    log.info(
+        "Recursopoly rule set '%s' (%s): %d squares, decks: %s",
+        _rs.id, _rs.name, len(_rs.board["squares"]),
+        ", ".join(f"{name} ({len(cards)})" for name, cards in _rs.decks.items()) or "none",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +71,12 @@ log.info(
 
 @app.route("/")
 def index():
-    return render_template("index.html", error=request.args.get("error"))
+    return render_template(
+        "index.html",
+        error=request.args.get("error"),
+        rulesets=list(RULESETS.values()),
+        default_ruleset=DEFAULT_RULESET,
+    )
 
 
 @app.route("/lobby/<code>")
@@ -186,16 +181,20 @@ def cleanup_if_abandoned(game):
 
 @socketio.on("create_game")
 def on_create_game(data):
+    """{"name": host's display name, "ruleset": rule set id}"""
     data = data or {}
+    ruleset = RULESETS.get(data.get("ruleset") or DEFAULT_RULESET)
+    if ruleset is None:
+        return send_error("Unknown rule set.", "bad_ruleset")
     with state_lock:
         code = generate_join_code(CONFIG.join_code_length, existing=games.keys())
-        game = Game(code, _load_boards(), CONFIG, decks=DECKS)
+        game = Game(code, ruleset)
         try:
             player, _ = game.add_player(data.get("name"))
         except GameError as err:
             return send_error(str(err), err.code)
         games[code] = game
-        log.info("Recursopoly game %s created by %s", code, player.name)
+        log.info("Recursopoly game %s created by %s with the %s rule set", code, player.name, ruleset.id)
         seat_socket(game, player, rejoined=False)
         broadcast_state(game)
 
@@ -318,8 +317,14 @@ socketio.on_event("pay_jail_fine", lambda _data=None: player_action(lambda g, n:
 socketio.on_event("use_jail_card", lambda _data=None: player_action(lambda g, n: g.use_jail_card(n)))
 
 # Buildings and mortgages: {"board_id": 0, "index": 39}
-for _event in ("build_house", "sell_house", "mortgage", "unmortgage"):
+for _event in ("build_house", "build_hotel", "sell_house", "mortgage", "unmortgage"):
     socketio.on_event(_event, _square_action(_event))
+
+
+@socketio.on("sell_stake")
+def on_sell_stake(data):
+    """{"board_id", "index", "stake": stake number}"""
+    player_action(lambda g, n: g.sell_stake(n, _int(data, "board_id"), _int(data, "index"), _int(data, "stake")))
 
 
 @socketio.on("propose_trade")

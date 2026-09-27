@@ -1,0 +1,32 @@
+{
+  "name": "AMST",
+  "description": "Adult-themed rule set with custom properties and pooled stakeholder squares",
+  "board": "boards/amst_board.json",
+  "cards": {
+    "chance": "cards/amst_last_call.txt",
+    "community_chest": "cards/amst_lucky_dip.txt"
+  },
+
+  "economy": {
+    "starting_money": 2000,
+    "go_salary": 250,
+    "jail_fine": 75
+  },
+
+  "building": {
+    "max_houses_per_property": 4,
+    "max_hotels_per_property": 3,
+    "houses_before_hotel": 4
+  },
+
+  "house_rules": {
+    "doubles_before_jail": 3,
+    "must_lap_before_buying": true
+  },
+
+  "pooled_squares": {
+    "receives": ["taxes", "fines"],
+    "payout_trigger": "on_landing",
+    "payout_split": "by_stake"
+  }
+}

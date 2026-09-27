@@ -1,0 +1,38 @@
+{
+  "name": "Classic",
+  "description": "The standard Recursopoly rules on the classic London board. Every other rule set falls back to these values.",
+  "board": "boards/classic_board.json",
+  "cards": {
+    "chance": "cards/chance.txt",
+    "community_chest": "cards/community_chest.txt"
+  },
+  "players": {
+    "min_players": 2,
+    "max_players": 6
+  },
+  "economy": {
+    "starting_money": 1500,
+    "go_salary": 200,
+    "jail_fine": 50,
+    "full_group_rent_multiplier": 2,
+    "house_sell_percent": 50,
+    "mortgage_percent": 50,
+    "unmortgage_interest_percent": 10
+  },
+  "building": {
+    "max_houses_per_property": 4,
+    "houses_before_hotel": 4,
+    "max_hotels_per_property": 1
+  },
+  "house_rules": {
+    "doubles_before_jail": 3,
+    "max_jail_turns": 3,
+    "must_lap_before_buying": false
+  },
+  "pooled_squares": {
+    "receives": [],
+    "payout_trigger": "on_landing",
+    "payout_split": "by_stake",
+    "sell_back_percent": 50
+  }
+}

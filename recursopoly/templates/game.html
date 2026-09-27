@@ -9,7 +9,7 @@
 <body data-page="game" data-join-code="{{ join_code }}">
     <header class="site-header site-header-compact">
         <h1 class="logo"><a href="{{ url_for('index') }}">Recursopoly</a></h1>
-        <span class="header-code">Game <strong>{{ join_code }}</strong></span>
+        <span class="header-code"><span id="header-ruleset"></span> Game <strong>{{ join_code }}</strong></span>
     </header>
 
     <div id="error" class="banner banner-error" hidden></div>
@@ -66,6 +66,12 @@
                 <ul id="game-players" class="player-list"></ul>
             </section>
 
+            <details class="card ruleset-card">
+                <summary><h2>Rule set: <span id="ruleset-name"></span></h2></summary>
+                <p id="ruleset-description" class="muted small"></p>
+                <dl id="ruleset-summary" class="ruleset-summary"></dl>
+            </details>
+
             <section class="card log-card">
                 <h2>Event log</h2>
                 <ol id="event-log" class="event-log"></ol>
@@ -81,7 +87,7 @@
     <div id="game-over" class="overlay" hidden>
         <div class="card overlay-card">
             <h2 id="winner">Game over</h2>
-            <p class="muted">Final standings by net worth (money + property + buildings)</p>
+            <p class="muted">Final standings by net worth (money + property + buildings + stakes)</p>
             <ol id="final-standings" class="standings"></ol>
             <a class="btn btn-primary" href="{{ url_for('index') }}">Back to Recursopoly</a>
         </div>
@@ -107,7 +113,8 @@
                     <input id="trade-get-money" type="number" min="0" step="1" value="0">
                 </fieldset>
             </div>
-            <p class="muted small">Properties in a colour group with buildings can't be traded.</p>
+            <p class="muted small">Properties in a colour group with buildings can't be traded.
+                Each stake is a separate item: tick the ones you want to trade.</p>
             <div class="panel-actions">
                 <button type="submit" class="btn btn-primary">Send offer</button>
                 <button type="button" class="btn" id="trade-cancel-btn">Cancel</button>

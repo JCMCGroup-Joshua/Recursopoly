@@ -2,9 +2,11 @@
 
 A web-based, turn-based multiplayer board game in the spirit of Monopoly,
 built with Python, Flask and Flask-SocketIO. Players join a shared game with
-a short code and take turns rolling the dice around the board. Future
-versions add **boards within boards**: smaller, pricier boards nested inside
-the outer one and linked by train stations.
+a short code and take turns rolling the dice around the board. The host
+picks a **rule set** for each game: Classic, the adult-themed AMST, or any
+new variant written as a JSON file. Future versions add **boards within
+boards**: smaller, pricier boards nested inside the outer one and linked by
+train stations.
 
 The game lives in [`recursopoly/`](recursopoly/). See
 [`recursopoly/README.md`](recursopoly/README.md) for installation,

@@ -1,0 +1,19 @@
+# AMST "Last Call" deck (drawn on chance squares in the AMST rule set)
+# Same format as chance.txt: text | effect | key=value; key=value
+
+Last call! Stagger back to GO and collect your wages | move_to | square=GO
+You're on the guest list at the High Rollers Casino. If you pass GO, collect your wages | move_to | square=High Rollers Casino
+Head to the Burlesque Theatre. If you pass GO, collect your wages | move_to | square=Burlesque Theatre
+Catch the last train from Central Station. If you pass GO, collect your wages | move_to | square=Central Station
+Treat yourself at the Private Members' Club | move_to | square=Private Members' Club
+Grab the nearest ride and tip the driver double | move_to_nearest | type=station; rent_multiplier=2
+Grab the nearest ride and tip the driver double | move_to_nearest | type=station; rent_multiplier=2
+Head to the nearest utility | move_to_nearest | type=utility
+Forgot your coat. Go back three spaces | move_by | steps=-3
+Caught dancing on the bar. Go straight to Jail | go_to_jail
+Friend of the bouncer. Get Out of Jail Free | get_out_of_jail_free
+Your tab was comped. Collect £60 | collect | amount=60
+Big win at the poker table. Collect £180 | collect | amount=180
+Noise complaint fine £20 | pay | amount=20
+Refit your venues: £30 per house, £120 per hotel | repairs | house=30; hotel=120
+You're buying the round. Pay each player £60 | pay_each | amount=60
