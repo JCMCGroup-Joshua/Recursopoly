@@ -374,6 +374,7 @@ body > .banner { margin: 0 16px 12px; }
 /* ---- Board ----------------------------------------------------------- */
 /* The grid size is set from JS (--cells) so any board_size works. */
 
+.board-area { min-width: 0; }
 .board-wrap { display: flex; justify-content: center; }
 
 .board {
@@ -383,6 +384,9 @@ body > .banner { margin: 0 16px 12px; }
     grid-template-rows: repeat(var(--cells), minmax(0, 1fr));
     width: min(100%, 86vh);
     aspect-ratio: 1 / 1;
+    /* Squares size their text and tokens from their own board's width
+       (cqi), so zooming in makes them readable. */
+    container-type: inline-size;
     background: var(--board);
     border: 3px solid var(--line);
     gap: 1px;
@@ -398,7 +402,7 @@ body > .banner { margin: 0 16px 12px; }
     overflow: hidden;
     min-width: 0;
     min-height: 0;
-    font-size: clamp(5px, 0.9vw, 10px);
+    font-size: clamp(4px, calc(100cqi / var(--cells) / 8), 15px);
 }
 
 .square .band { height: 22%; flex: none; border-bottom: 1px solid var(--line); }
@@ -426,12 +430,12 @@ body > .banner { margin: 0 16px 12px; }
 .buildings { display: flex; gap: 1px; }
 .buildings .house, .buildings .hotel {
     display: inline-block;
-    width: clamp(3px, 0.7vw, 7px);
-    height: clamp(3px, 0.7vw, 7px);
+    width: clamp(3px, calc(100cqi / var(--cells) / 11), 9px);
+    height: clamp(3px, calc(100cqi / var(--cells) / 11), 9px);
     background: #1f9d45;
     border: 1px solid #fff;
 }
-.buildings .hotel { width: clamp(8px, 1.6vw, 16px); background: #d32f2f; }
+.buildings .hotel { width: clamp(8px, calc(100cqi / var(--cells) / 5), 20px); background: #d32f2f; }
 
 /* Mortgaged squares are faded and striped. */
 .square.mortgaged {
@@ -461,13 +465,13 @@ body > .banner { margin: 0 16px 12px; }
 }
 
 .token {
-    width: clamp(9px, 1.8vw, 18px);
-    height: clamp(9px, 1.8vw, 18px);
+    width: clamp(9px, calc(100cqi / var(--cells) / 4.4), 24px);
+    height: clamp(9px, calc(100cqi / var(--cells) / 4.4), 24px);
     border-radius: 50%;
     border: 2px solid #fff;
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
     color: #fff;
-    font-size: clamp(5px, 0.9vw, 9px);
+    font-size: clamp(5px, calc(100cqi / var(--cells) / 9), 12px);
     font-weight: 800;
     display: grid;
     place-items: center;
@@ -498,7 +502,7 @@ body > .banner { margin: 0 16px 12px; }
     border: 2px solid #e07b00;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
     padding: 8px 10px;
-    font-size: clamp(0.6rem, 1.1vw, 0.9rem);
+    font-size: clamp(0.55rem, 1.7cqi, 1rem);
     text-align: center;
 }
 .drawn-card.deck-community_chest { border-color: #0063a6; }
@@ -509,7 +513,7 @@ body > .banner { margin: 0 16px 12px; }
 
 .board-centre .centre-logo {
     font-weight: 900;
-    font-size: clamp(1rem, 4.5vw, 3rem);
+    font-size: clamp(0.8rem, 6cqi, 3.4rem);
     letter-spacing: 0.06em;
     color: var(--accent);
     transform: rotate(-40deg);
@@ -600,7 +604,7 @@ details.ruleset-card > summary::after { content: " \25BE"; color: var(--muted); 
 }
 
 .board-label {
-    font-size: clamp(0.55rem, 1vw, 0.85rem);
+    font-size: clamp(0.5rem, 1.6cqi, 1rem);
     font-weight: 800;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -618,7 +622,7 @@ details.ruleset-card > summary::after { content: " \25BE"; color: var(--muted); 
 .board-nested[data-depth="3"] > .board-centre { background: #f8ece0; }
 
 .board-nested .centre-logo {
-    font-size: clamp(0.5rem, 1.4vw, 1.1rem);
+    font-size: clamp(0.5rem, 6cqi, 2rem);
     border-width: 2px;
 }
 
@@ -813,3 +817,88 @@ details.ruleset-card > summary::after { content: " \25BE"; color: var(--muted); 
 .auction-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .auction-row { display: flex; gap: 6px; align-items: center; }
 .auction-row input { flex: 1; min-width: 0; margin: 0; }
+
+/* ---- Visual polish (Phase 7) ------------------------------------------- */
+
+/* Board view: fit the whole board, or zoom into one board. A zoomed board
+   scrolls inside a square frame. */
+.board-view { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.board-view:empty { display: none; }
+.board-view .btn { margin: 0; }
+.board-view .btn.is-active { background: var(--ink, #222); border-color: var(--ink, #222); color: #fff; }
+.board-wrap.is-zoomed {
+    display: block;
+    overflow: auto;
+    aspect-ratio: 1 / 1;
+    max-height: 86vh;
+    overscroll-behavior: contain;
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 1px var(--line);
+}
+.board-wrap.is-zoomed > .board { width: calc(var(--zoom, 1) * min(100%, 86vh)); max-width: none; }
+
+/* Tap a square for its details. */
+.square { cursor: pointer; }
+.square.is-selected { outline: 3px solid var(--warn); outline-offset: -3px; z-index: 1; }
+.square-info {
+    position: fixed;
+    left: 50%;
+    bottom: 16px;
+    transform: translateX(-50%);
+    width: min(360px, calc(100vw - 32px));
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: 0 6px 30px rgba(0, 0, 0, 0.25);
+    padding: 12px 36px 12px 14px;
+    z-index: 50;
+    font-size: 0.92rem;
+    animation: rise 0.18s ease-out;
+}
+.square-info h3 { margin: 0 0 6px; font-size: 1.05rem; }
+.square-info .band-preview { height: 6px; border-radius: 3px; margin-bottom: 8px; }
+.square-info ul { margin: 0; padding-left: 18px; }
+.square-info-close {
+    position: absolute; top: 6px; right: 8px;
+    border: 0; background: none; font-size: 1.4rem; line-height: 1; cursor: pointer; color: var(--muted);
+}
+@keyframes rise { from { opacity: 0; transform: translate(-50%, 12px); } }
+
+/* Tokens hop from square to square, and pop when they land somewhere new. */
+.token.is-stepping { animation: hop 0.14s ease-out; }
+.token.is-arriving { animation: pop 0.45s ease-out; }
+@keyframes hop { 40% { transform: translateY(-35%) scale(1.15); } }
+@keyframes pop { 0% { transform: scale(0.2); } 60% { transform: scale(1.5); } }
+
+/* Dice tumble while they roll. */
+.die { display: inline-block; }
+.dice.is-rolling .die { animation: tumble 0.14s linear infinite; }
+.dice.is-rolling .roll-caption { visibility: hidden; }
+@keyframes tumble { 50% { transform: rotate(18deg) translateY(-4px); } }
+
+/* Money changes flash green or red, with the difference floating up. */
+.player-list .money { position: relative; }
+.money.money-up { animation: flash-up 1.2s ease-out; }
+.money.money-down { animation: flash-down 1.2s ease-out; }
+@keyframes flash-up { 0%, 30% { color: var(--good); } }
+@keyframes flash-down { 0%, 30% { color: var(--accent); } }
+.money-delta {
+    position: absolute; right: 0; top: -2px;
+    font-size: 0.8rem; font-weight: 800; pointer-events: none;
+    animation: float-up 1.4s ease-out forwards;
+}
+.money-delta.is-up { color: var(--good); }
+.money-delta.is-down { color: var(--accent); }
+@keyframes float-up { to { transform: translateY(-18px); opacity: 0; } }
+
+.icon-btn {
+    border: 1px solid var(--line); background: var(--surface); border-radius: 6px;
+    font-size: 1rem; line-height: 1; padding: 4px 6px; cursor: pointer; vertical-align: middle;
+}
+.icon-btn[aria-pressed="false"] { opacity: 0.6; }
+
+@media (prefers-reduced-motion: reduce) {
+    .token.is-stepping, .token.is-arriving, .dice.is-rolling .die,
+    .money.money-up, .money.money-down, .money-delta, .square-info, .turn-indicator.is-you {
+        animation: none;
+    }
+}

@@ -11,6 +11,8 @@
     <header class="site-header site-header-compact">
         <h1 class="logo"><a href="{{ url_for('index') }}">Recursopoly</a></h1>
         <span class="header-code">
+            <button type="button" id="sound-btn" class="icon-btn" aria-pressed="true"
+                    title="Sounds on (click to mute)">&#128266;</button>
             <span id="watchers" class="watchers" hidden></span>
             {% if spectator %}<span class="tag tag-watching">watching</span>{% endif %}
             <span id="header-ruleset"></span> Game <strong>{{ join_code }}</strong>
@@ -22,8 +24,11 @@
     <main class="game-layout">
         <!-- The boards are drawn by recursopoly.js from the game state. Inner
              boards are drawn inside the centre of the board around them. -->
-        <section class="board-wrap">
-            <div id="board" class="board" aria-label="Recursopoly board"></div>
+        <section class="board-area">
+            <div id="board-view" class="board-view" role="toolbar" aria-label="Board view"></div>
+            <div id="board-wrap" class="board-wrap">
+                <div id="board" class="board" aria-label="Recursopoly board"></div>
+            </div>
         </section>
 
         <aside class="sidebar">
@@ -119,6 +124,11 @@
             </div>
         </aside>
     </main>
+
+    <div id="square-info" class="square-info" hidden role="dialog" aria-live="polite">
+        <button type="button" class="square-info-close" id="square-info-close" aria-label="Close">&times;</button>
+        <div id="square-info-body"></div>
+    </div>
 
     <div id="game-over" class="overlay" hidden>
         <div class="card overlay-card">

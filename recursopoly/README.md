@@ -15,7 +15,8 @@ The game currently includes:
   the adult-themed **AMST** rule set
 - **Phase 5:** nested boards and train travel (the **Recursopoly** rule set)
 - **Phase 6:** leaderboard, game history, spectators, chat and a turn timer
-- **Phase 7:** auctions and saved games that survive a restart
+- **Phase 7:** auctions, saved games that survive a restart, and visual
+  polish (animations, sounds, zoomable boards)
 
 Everything runs on Flask and Flask-SocketIO. There is **no database**:
 rule sets and boards are JSON files, server settings and card decks are
@@ -225,6 +226,22 @@ plain `.txt` files, and scores are appended to a `.csv` file.
     are saves untouched for `saves_keep_days`. A save that can't be read
     is renamed to `.broken` and skipped.
   - Set `save_games=false` in `config.txt` to keep games in memory only.
+- **Board view.** Buttons above the board switch between **Fit** (every
+  board at once) and zooming into one board, which then fills a
+  scrollable frame. On a phone this makes any board readable; with nested
+  boards it brings an inner board up to full size. Square text and tokens
+  scale with their board.
+- **Square details.** Tap or click any square for its price, rents,
+  building costs, owner, buildings, pot and who is standing on it.
+- **Animations.** The dice tumble when rolled, tokens hop square by square
+  when they move forward (and pop in after a jump, train ride or trip to
+  jail), and every player's money flashes green or red with the amount
+  when it changes. The browser tab title shows when it's your turn.
+  Animations are skipped when the device asks for reduced motion.
+- **Sounds.** Short tones (made in the browser, no sound files) for dice,
+  moves, your turn, money in and out, jail, auctions and the end of the
+  game. The speaker button in the header mutes them, and the choice is
+  remembered in that browser.
 
 ## Changing settings from the web page
 

@@ -954,7 +954,9 @@ class Game:
         d1, d2 = dice if dice is not None else self.roll_dice()
         total = d1 + d2
         doubles = d1 == d2
-        self.last_roll = {"player": player.name, "dice": [d1, d2], "total": total, "doubles": doubles}
+        # "id" counts rolls so the page can tell a new roll from a repeat.
+        self.last_roll = {"id": (self.last_roll or {}).get("id", 0) + 1, "player": player.name,
+                          "dice": [d1, d2], "total": total, "doubles": doubles}
         result = {"dice": [d1, d2], "total": total, "doubles": doubles,
                   "passed_go": 0, "jailed": False, "roll_again": False}
         roll_details = f"dice={d1}+{d2}; total={total}; doubles={'yes' if doubles else 'no'}"
