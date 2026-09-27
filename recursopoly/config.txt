@@ -13,7 +13,7 @@
 # Folder of rule set JSON files, and the one preselected on the
 # create-game form.
 rulesets_dir=rulesets
-default_ruleset=classic
+default_ruleset=recursopoly
 
 # --- Join codes ---------------------------------------------------
 join_code_length=6
@@ -34,7 +34,7 @@ turn_timer_seconds=0
 # web page (Settings, or "Save as rule set" in the lobby). Leave empty to
 # turn saving from the web off. Changing a game's rules in its lobby
 # never needs it.
-admin_password=
+admin_password=123456
 
 # --- Server -------------------------------------------------------
 host=0.0.0.0
