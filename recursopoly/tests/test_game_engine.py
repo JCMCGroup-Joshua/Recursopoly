@@ -160,6 +160,49 @@ class RuleSetEditingTests(unittest.TestCase):
             self.assertEqual(loaded.values["min_players"], 2)
 
 
+class RuleSetPasscodeTests(unittest.TestCase):
+    """A rule set can be locked with a passcode that only its file sets."""
+
+    def test_passcode_saved_and_checked(self):
+        from rulesets import ruleset_file_data, save_ruleset
+        amst = RULESETS["amst"]
+        self.assertFalse(amst.locked)
+        self.assertTrue(amst.check_passcode(""))
+        data = ruleset_file_data("Locked", "", amst.board_paths, amst.card_paths, amst.values,
+                                 RULESETS["classic"].values, passcode="open sesame")
+        self.assertEqual(data["passcode"], "open sesame")
+        base = json.load(open(os.path.join(ROOT, "rulesets", "classic.json"), encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            loaded = load_ruleset(save_ruleset(tmp, "locked", data), ROOT, base=base)
+        self.assertTrue(loaded.locked)
+        self.assertTrue(loaded.check_passcode("open sesame"))
+        self.assertFalse(loaded.check_passcode("open"))
+        self.assertFalse(loaded.check_passcode(None))
+        self.assertNotIn("passcode", loaded.values)  # not a game value: games can't change it
+
+    def test_passcode_not_inherited_from_classic(self):
+        base = json.load(open(os.path.join(ROOT, "rulesets", "classic.json"), encoding="utf-8"))
+        base["passcode"] = "classic only"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "open.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"name": "Open"}, fh)
+            self.assertFalse(load_ruleset(path, ROOT, base=base).locked)
+
+    def test_bad_passcode_rejected(self):
+        from rulesets import check_passcode_text
+        self.assertEqual(check_passcode_text("  abc  "), "abc")
+        with self.assertRaises(ValueError):
+            check_passcode_text("x" * 101)
+        base = json.load(open(os.path.join(ROOT, "rulesets", "classic.json"), encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "bad.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"name": "Bad", "passcode": 1234}, fh)
+            with self.assertRaises(ValueError):
+                load_ruleset(path, ROOT, base=base)
+
+
 class RuleSetTests(unittest.TestCase):
     def test_classic_and_amst_load(self):
         self.assertEqual(list(RULESETS)[0], "classic")

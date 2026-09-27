@@ -14,18 +14,23 @@ grouped into sections:
       "building":    {"max_hotels_per_property": 3, ...},
       "house_rules": {"must_lap_before_buying": true, ...},
       "pooled_squares": {"receives": ["taxes", "fines"], "payout_trigger": ...},
-      "travel":      {"ticket_prices": [50, 150, 300], "choose_destination": true}
+      "travel":      {"ticket_prices": [50, 150, 300], "choose_destination": true},
+      "passcode": "..."                         # optional: needed to host a game
     }
 
 rulesets/classic.json is the base: any section or value another rule set
 leaves out is taken from classic. Adding a variant means writing a new JSON
 file (and optionally a board and card decks); no code changes.
 
+"passcode" is never taken from classic: each file locks only itself. A
+game can't change its passcode; only the admin settings page rewrites it.
+
 Paths inside a rule set are relative to the project folder. This module
 reads files; game_engine stays free of file access.
 """
 
 import copy
+import hmac
 import json
 import os
 import re
@@ -35,7 +40,8 @@ from game_engine import parse_board_data, parse_cards_text
 
 BASE_RULESET = "classic"
 SECTIONS = ("players", "economy", "building", "house_rules", "pooled_squares", "travel")
-TOP_LEVEL_KEYS = {"name", "description", "board", "boards", "cards", *SECTIONS}
+TOP_LEVEL_KEYS = {"name", "description", "board", "boards", "cards", "passcode", *SECTIONS}
+MAX_PASSCODE_LENGTH = 100
 # Keys in these sections get a prefix when flattened, so the engine reads
 # e.g. pooled_squares.receives as "pool_receives".
 KEY_PREFIX = {"pooled_squares": "pool_"}
@@ -105,6 +111,15 @@ class RuleSet:
     path: str = ""
     board_paths: list = field(default_factory=list)  # as written in the file
     card_paths: dict = field(default_factory=dict)
+    passcode: str = ""      # needed to host a game with this rule set; "" = open
+
+    @property
+    def locked(self):
+        return bool(self.passcode)
+
+    def check_passcode(self, given):
+        """True if the rule set is open or ``given`` is its passcode."""
+        return not self.passcode or hmac.compare_digest(str(given or ""), self.passcode)
 
     @property
     def board(self):
@@ -265,11 +280,22 @@ def coerce_values(changes):
     return out
 
 
-def ruleset_file_data(name, description, board_paths, card_paths, values, base_values=None):
+def check_passcode_text(passcode):
+    """Tidy a new passcode ("" removes it). Raises ValueError."""
+    passcode = str(passcode or "").strip()
+    if len(passcode) > MAX_PASSCODE_LENGTH:
+        raise ValueError(f"A passcode can be at most {MAX_PASSCODE_LENGTH} characters.")
+    return passcode
+
+
+def ruleset_file_data(name, description, board_paths, card_paths, values, base_values=None,
+                      passcode=""):
     """The JSON to write for a rule set. With ``base_values`` (classic's),
     only values that differ are written, so the file keeps falling back to
     classic for everything else."""
     data = {"name": name, "description": description}
+    if passcode:
+        data["passcode"] = passcode
     if len(board_paths) == 1:
         data["board"] = board_paths[0]
     else:
@@ -315,6 +341,9 @@ def load_ruleset(path, root, base=None):
         raise ValueError(f"{path}: {err}") from None
     if not merged["boards"]:
         raise ValueError(f"{path}: no 'board' given")
+    passcode = data.get("passcode", "")
+    if not isinstance(passcode, str) or len(passcode.strip()) > MAX_PASSCODE_LENGTH:
+        raise ValueError(f"{path}: 'passcode' must be text of up to {MAX_PASSCODE_LENGTH} characters")
     flat = _flatten(merged)
     boards = [_read_json(os.path.join(root, rel)) for rel in merged["boards"]]
     _validate(flat, boards, REQUIRED_VALUES, path)
@@ -329,6 +358,7 @@ def load_ruleset(path, root, base=None):
         path=path,
         board_paths=list(merged["boards"]),
         card_paths=dict(merged["cards"] or {}),
+        passcode=passcode.strip(),
     )
 
 
