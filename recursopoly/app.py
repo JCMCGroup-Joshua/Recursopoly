@@ -27,6 +27,7 @@ from game_engine import (
 from logger import ScoreLogger
 from rulesets import (
     FIELDS as RULE_FIELDS,
+    check_passcode_text,
     coerce_values,
     load_rulesets,
     ruleset_file_data,
@@ -177,7 +178,7 @@ def _settings_data():
     """Everything the settings page edits: rule sets and server settings."""
     rulesets = [{
         "id": rs.id, "name": rs.name, "description": rs.description,
-        "values": rs.values, "board_count": len(rs.boards),
+        "values": rs.values, "locked": rs.locked, "board_count": len(rs.boards),
         "boards": [b.get("name", path) for b, path in zip(rs.boards, rs.board_paths)],
     } for rs in RULESETS.values()]
     return {
@@ -188,30 +189,47 @@ def _settings_data():
     }
 
 
-# Wrong admin passwords per client address, to slow down guessing.
+# Wrong admin passwords and rule set passcodes per client address, to slow
+# down guessing.
 MAX_PASSWORD_FAILURES = 5
 PASSWORD_LOCKOUT_SECONDS = 300
-password_failures = {}  # address -> [times of recent failures]
+password_failures = {}  # (kind, address) -> [times of recent failures]
+
+
+def _guess_check(kind, correct, wrong_message):
+    """Rate-limited check of a password or passcode. None if ``correct``,
+    else (message, http status). After MAX_PASSWORD_FAILURES wrong tries of
+    one ``kind`` an address must wait."""
+    key = (kind, request.remote_addr or "?")
+    now = time.time()
+    recent = [t for t in password_failures.get(key, []) if now - t < PASSWORD_LOCKOUT_SECONDS]
+    if len(recent) >= MAX_PASSWORD_FAILURES:
+        wait = int(PASSWORD_LOCKOUT_SECONDS - (now - recent[0])) + 1
+        return f"Too many wrong tries. Try again in {wait} seconds.", 429
+    if not correct():
+        recent.append(now)
+        password_failures[key] = recent
+        return wrong_message, 403
+    password_failures.pop(key, None)
+    return None
 
 
 def _password_error(given):
-    """None if ``given`` is the admin password, else (message, http status).
-    After MAX_PASSWORD_FAILURES wrong tries an address must wait."""
+    """None if ``given`` is the admin password, else (message, http status)."""
     if not CONFIG.admin_password:
         return ("Saving is turned off: set admin_password in config.txt and restart the "
                 "server.", 403)
-    address = request.remote_addr or "?"
-    now = time.time()
-    recent = [t for t in password_failures.get(address, []) if now - t < PASSWORD_LOCKOUT_SECONDS]
-    if len(recent) >= MAX_PASSWORD_FAILURES:
-        wait = int(PASSWORD_LOCKOUT_SECONDS - (now - recent[0])) + 1
-        return f"Too many wrong passwords. Try again in {wait} seconds.", 429
-    if not CONFIG.check_admin_password(given):
-        recent.append(now)
-        password_failures[address] = recent
-        return "Wrong admin password.", 403
-    password_failures.pop(address, None)
-    return None
+    return _guess_check("admin", lambda: CONFIG.check_admin_password(given), "Wrong admin password.")
+
+
+def _passcode_error(ruleset, given):
+    """None if the rule set is open or ``given`` is its passcode."""
+    if not ruleset.locked:
+        return None
+    if not given:
+        return f"The {ruleset.name} rule set is locked: enter its passcode.", 403
+    return _guess_check("passcode", lambda: ruleset.check_passcode(given),
+                        f"Wrong passcode for the {ruleset.name} rule set.")
 
 
 def _password_problem(given):
@@ -236,8 +254,10 @@ def _json_error(message, status=400):
 
 @app.route("/settings/ruleset", methods=["POST"])
 def save_ruleset_route():
-    """{"password", "id", "name", "description", "source", "values"}: save
-    a rule set (a new id, or overwrite an existing one)."""
+    """{"password", "id", "name", "description", "source", "values",
+    "passcode", "remove_passcode"}: save a rule set (a new id, or overwrite
+    an existing one). The passcode is kept from ``source`` unless a new one
+    is given or it is removed."""
     data = request.get_json(silent=True) or {}
     problem = _password_problem(data.get("password"))
     if problem:
@@ -248,8 +268,13 @@ def save_ruleset_route():
             return _json_error("Unknown rule set to copy the boards and cards from.")
         try:
             values = {**source.values, **coerce_values(data.get("values"))}
+            passcode = source.passcode
+            if data.get("remove_passcode"):
+                passcode = ""
+            elif str(data.get("passcode") or "").strip():
+                passcode = check_passcode_text(data.get("passcode"))
             rid = _save_ruleset_file(data.get("id"), data.get("name"), data.get("description"),
-                                     source, values)
+                                     source, values, passcode)
         except (ValueError, OSError) as err:
             return _json_error(str(err))
     return jsonify({"ok": True, "id": rid, "message": f"Saved rule set '{RULESETS[rid].name}'."})
@@ -430,11 +455,15 @@ def cleanup_if_abandoned(game):
 
 @socketio.on("create_game")
 def on_create_game(data):
-    """{"name": host's display name, "ruleset": rule set id}"""
+    """{"name": host's display name, "ruleset": rule set id, "passcode":
+    needed for a locked rule set}"""
     data = data or {}
     ruleset = RULESETS.get(data.get("ruleset") or default_ruleset_id())
     if ruleset is None:
         return send_error("Unknown rule set.", "bad_ruleset")
+    error = _passcode_error(ruleset, data.get("passcode"))
+    if error:
+        return send_error(error[0], "bad_passcode")
     with state_lock:
         code = generate_join_code(CONFIG.join_code_length, existing=games.keys())
         game = Game(code, ruleset)
@@ -638,7 +667,7 @@ def on_update_rules(data):
         broadcast_state(game)
 
 
-def _save_ruleset_file(rid, name, description, source, values):
+def _save_ruleset_file(rid, name, description, source, values, passcode):
     """Write rulesets/<rid>.json (boards and cards from ``source``) and
     reload the rule sets. Returns the saved id."""
     rid = (rid or "").strip().lower()
@@ -646,7 +675,7 @@ def _save_ruleset_file(rid, name, description, source, values):
     base = None if rid == "classic" else RULESETS["classic"].values
     validate_values(values, len(source.board_paths), f"Rule set '{rid}'")
     data = ruleset_file_data(name, (description or "").strip(), source.board_paths,
-                             source.card_paths, values, base)
+                             source.card_paths, values, base, passcode)
     save_ruleset(CONFIG.path("rulesets_dir"), rid, data)
     try:
         reload_rulesets()
@@ -659,7 +688,8 @@ def _save_ruleset_file(rid, name, description, source, values):
 @socketio.on("save_ruleset")
 def on_save_ruleset(data):
     """The host saves this game's current rules as a rule set file, so they
-    can be picked for future games. Needs the admin password.
+    can be picked for future games. Needs the admin password. A locked
+    rule set's passcode is copied: games can't change it.
     {"id", "name", "description", "password"}"""
     data = data or {}
     with state_lock:
@@ -673,7 +703,7 @@ def on_save_ruleset(data):
             return send_error(error[0], "bad_password")
         try:
             rid = _save_ruleset_file(data.get("id"), data.get("name"), data.get("description"),
-                                     game.ruleset, dict(game.rules))
+                                     game.ruleset, dict(game.rules), game.ruleset.passcode)
         except (ValueError, OSError) as err:
             return send_error(str(err), "save_failed")
         emit("ruleset_saved", {"id": rid, "name": RULESETS[rid].name})

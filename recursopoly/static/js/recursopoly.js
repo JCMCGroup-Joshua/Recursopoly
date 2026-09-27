@@ -101,6 +101,10 @@
         function describeRuleset() {
             var opt = picker.options[picker.selectedIndex];
             $("ruleset-description").textContent = opt ? opt.dataset.description : "";
+            var locked = !!(opt && opt.dataset.locked);
+            $("create-passcode-row").hidden = !locked;
+            $("create-passcode").required = locked;
+            if (!locked) $("create-passcode").value = "";
         }
         picker.addEventListener("change", describeRuleset);
         describeRuleset();
@@ -108,7 +112,8 @@
         $("create-form").addEventListener("submit", function (ev) {
             ev.preventDefault();
             pending = { name: $("create-name").value.trim() };
-            socket.emit("create_game", { name: pending.name, ruleset: picker.value });
+            socket.emit("create_game", { name: pending.name, ruleset: picker.value,
+                                         passcode: $("create-passcode").value });
         });
 
         $("join-form").addEventListener("submit", function (ev) {
@@ -1297,6 +1302,13 @@
             $("rs-description").value = rs.description;
             $("ruleset-boards").textContent = "Board" + (rs.boards.length > 1 ? "s" : "") + ": " +
                 rs.boards.join(", ") + " (boards and card decks are set in the file)";
+            $("rs-passcode-status").textContent = rs.locked
+                ? "\ud83d\udd12 Locked: hosting a game with this rule set needs its passcode. " +
+                  "Games can't change it."
+                : "Open: anyone can host a game with this rule set. Set a passcode to lock it.";
+            $("rs-passcode").value = "";
+            $("rs-remove-passcode").checked = false;
+            $("rs-remove-passcode-row").hidden = !rs.locked;
             readRuleForm = buildRuleForm($("ruleset-fields"), data.rule_fields, rs.values, []);
         }
 
@@ -1304,7 +1316,7 @@
             var keep = selectId || picker.value;
             picker.replaceChildren();
             data.rulesets.forEach(function (rs) {
-                var opt = el("option", null, rs.name + " (" + rs.id + ")");
+                var opt = el("option", null, rs.name + " (" + rs.id + ")" + (rs.locked ? " \ud83d\udd12" : ""));
                 opt.value = rs.id;
                 picker.appendChild(opt);
             });
@@ -1317,7 +1329,8 @@
             postJSON("/settings/ruleset", {
                 password: password, id: id, source: picker.value,
                 name: $("rs-name").value.trim(), description: $("rs-description").value.trim(),
-                values: readRuleForm()
+                values: readRuleForm(),
+                passcode: $("rs-passcode").value, remove_passcode: $("rs-remove-passcode").checked
             }).then(function (res) {
                 if (res.ok) unlock(password, res.id, res.message);  // reload the saved data
                 else showMessage(res.error, false);

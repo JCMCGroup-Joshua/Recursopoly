@@ -212,6 +212,15 @@ plain `.txt` files, and scores are appended to a `.csv` file.
   saving from the web is turned off. The server checks the password; the
   browser never stores it. After 5 wrong passwords in 5 minutes, that
   address must wait before trying again.
+- **Locked rule sets:** a rule set can have a passcode. Hosting a game
+  with it then needs the passcode (the create form asks for it, and the
+  rule set shows a 🔒). The passcode belongs to the rule set:
+  a game's host can't change or remove it in the lobby. Only the Settings
+  page (after the admin password) can set, change or remove it, which
+  changes it for everyone. Saving a locked rule set under a new id, from
+  the lobby or Settings, keeps the passcode. Wrong passcodes are rate
+  limited like the admin password. In the file it is a top-level
+  `"passcode": "..."` and it is never taken from Classic.
 - Rule set files are written with only the values that differ from
   Classic, so they keep following Classic for everything else. Saving
   rewrites the file in that tidy form.

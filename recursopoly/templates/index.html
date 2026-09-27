@@ -26,10 +26,16 @@
                 <select id="create-ruleset" name="ruleset">
                     {% for rs in rulesets %}
                     <option value="{{ rs.id }}" data-description="{{ rs.description }}"
-                            {% if rs.id == default_ruleset %}selected{% endif %}>{{ rs.name }}</option>
+                            data-locked="{{ '1' if rs.locked else '' }}"
+                            {% if rs.id == default_ruleset %}selected{% endif %}>{{ rs.name }}{% if rs.locked %} &#128274;{% endif %}</option>
                     {% endfor %}
                 </select>
                 <p id="ruleset-description" class="muted small ruleset-description"></p>
+                <div id="create-passcode-row" hidden>
+                    <label for="create-passcode">Rule set passcode</label>
+                    <input id="create-passcode" type="password" maxlength="100" autocomplete="off"
+                           placeholder="This rule set is locked">
+                </div>
                 <button type="submit" class="btn btn-primary">Create game</button>
             </form>
         </section>

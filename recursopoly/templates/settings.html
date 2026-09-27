@@ -53,6 +53,15 @@
                         <label>Name <input id="rs-name" maxlength="60" required></label>
                         <label class="wide">Description <input id="rs-description" maxlength="300"></label>
                     </div>
+                    <fieldset class="rule-section passcode-section">
+                        <legend>Passcode</legend>
+                        <p id="rs-passcode-status" class="muted small"></p>
+                        <label class="rule-field"><span class="rule-label">New passcode (leave blank to keep)</span>
+                            <input id="rs-passcode" type="password" maxlength="100" autocomplete="new-password"></label>
+                        <label class="rule-field rule-check" id="rs-remove-passcode-row">
+                            <input id="rs-remove-passcode" type="checkbox">
+                            <span class="rule-label">Remove the passcode</span></label>
+                    </fieldset>
                     <div id="ruleset-fields" class="rule-form"></div>
                     <div class="panel-actions">
                         <button type="submit" class="btn btn-primary">Save changes</button>

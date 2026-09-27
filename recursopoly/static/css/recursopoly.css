@@ -801,3 +801,4 @@ details.ruleset-card > summary::after { content: " \25BE"; color: var(--muted); 
 .settings-unlocked { display: grid; gap: 16px; }
 .unlocked-bar { display: flex; justify-content: space-between; align-items: center; font-weight: 700; color: var(--good); }
 .unlocked-bar .btn { margin-top: 0; }
+.passcode-section #rs-passcode-status { grid-column: 1 / -1; margin: 0; }
