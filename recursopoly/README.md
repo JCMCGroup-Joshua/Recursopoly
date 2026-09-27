@@ -147,6 +147,22 @@ plain `.txt` files, and scores are appended to a `.csv` file.
   further inward (£50 to the outer board, £150 to the Middle Ring, £300 to
   The Core). Your token moves there, and your next roll continues on that
   board. Doubles still earn another roll.
+- **Automatic tickets (optional).** Set `travel.choose_destination` to
+  `false` and there is no choice to make: landing on a station always
+  buys a ticket one board inward, at that board's fare, arriving at the
+  station in the matching position. On the innermost board, a station
+  takes you back out to the outer board. If you can't afford the fare you
+  stay where you are.
+- **Recursopoly AMST.** The AMST rules on three nested boards:
+
+  | Board | Squares | Go salary | Pooled club |
+  | --- | --- | --- | --- |
+  | AMST Board (outer) | 40 | £250 | The Strip Club |
+  | The VIP Ring | 24 | £350 | The Gentlemen's Club |
+  | The Inner Sanctum | 12 | £450 | The Platinum Club |
+
+  Fares are £75, £200 and £400. Each club has its own stakes and its own
+  pot, fed by taxes and fines paid on that board.
 - **Independent boards.** Each board loops on its own, with its own Go
   salary, jail and colour groups. Station rent counts the stations the
   owner has on that board.
@@ -259,6 +275,7 @@ Here is AMST:
 | `pooled_squares` | `payout_trigger` | `on_landing` | `on_landing`: anyone landing pays the pot out. `on_stakeholder_landing`: only a stakeholder landing does |
 | `pooled_squares` | `sell_back_percent` | 50 | Percentage of a stake's buy-in the bank pays when a stake is sold back |
 | `travel` | `ticket_prices` | `[]` | Train fare to reach a station on each board, in board order. Needed (one per board) when a rule set has several boards |
+| `travel` | `choose_destination` | true | `true`: landing on a station offers tickets to any station on another board. `false`: automatic tickets, one board inward (and from the innermost board back to the outer board) |
 | `pooled_squares` | `payout_split` | `by_stake` | `by_stake`: in proportion to stakes (unsold stakes' share stays in the pot). `equal`: split evenly between stakeholders |
 
 Board size is not a rule: it comes from the board file. A rule set may
@@ -328,8 +345,11 @@ the outer board):
 }
 ```
 
-- Every `station` square is a portal to every station on the other boards.
-  The fare is the destination board's entry in `ticket_prices`.
+- With `choose_destination: true`, every `station` square is a portal to
+  every station on the other boards. With `false`, it always leads one
+  board inward (from the innermost board, back to the outer board) to the
+  station in the matching position. Either way the fare is the destination
+  board's entry in `ticket_prices`.
 - Arriving by train has no landing effects (no rent, no buy offer).
 - A board without a `jail` sends players to the outer board's jail.
 
@@ -395,7 +415,8 @@ devices on your network).
 ## How to play
 
 1. **Create a game.** On the Recursopoly home page, enter your name, pick
-   a **rule set** (Classic, AMST or Recursopoly) and click **Create game**.
+   a **rule set** (Classic, AMST, Recursopoly or Recursopoly AMST) and
+   click **Create game**.
    You become the host and land in the lobby. The lobby shows the join
    code in large letters and the rule set's key values.
 2. **Invite friends.** Share the join code. Each friend opens the home
@@ -469,9 +490,10 @@ recursopoly/
     config.py           Loads config.txt
     logger.py           Appends rows to scores.csv
     config.txt          Server settings
-    rulesets/           classic.json, amst.json, recursopoly.json
+    rulesets/           classic.json, amst.json, recursopoly.json, recursopoly_amst.json
     boards/             classic_board.json, amst_board.json,
-                        recursopoly_middle.json, recursopoly_core.json
+                        recursopoly_middle.json, recursopoly_core.json,
+                        amst_middle.json, amst_core.json
     cards/              Card decks (classic and AMST)
     templates/          index.html, lobby.html, game.html, leaderboard.html,
                         history.html, _nav.html
