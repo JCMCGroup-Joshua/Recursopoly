@@ -1151,12 +1151,15 @@ class RecursopolyAmstTests(unittest.TestCase):
         self.assertEqual(self.game.boards[1].square(12).pot, 250)
         self.assertEqual(self.game.boards[0].square(15).pot, 0)
 
-    def test_station_offers_tickets(self):
+    def test_stations_use_automatic_tickets(self):
+        # recursopoly_amst.json sets travel.choose_destination to false.
+        self.assertFalse(self.game._rule("choose_destination"))
         self.alice.laps = 1
         self.game.boards[0].square(5).set_owner("Bob")
-        result = self.game.roll("Alice", dice=(2, 3))  # Central Station
-        self.assertEqual(result["decision"]["type"], "travel")
-        self.assertEqual({o["price"] for o in result["decision"]["options"]}, {200, 400})
+        self.game.roll("Alice", dice=(2, 3))  # Central Station: £25 rent, then the train
+        self.assertEqual(self.alice.position, Position(1, 5))  # VIP Shuttle
+        self.assertEqual(self.alice.money, 2000 - 25 - 200)
+        self.assertIsNone(self.game.pending_decision)
 
 
 if __name__ == "__main__":
