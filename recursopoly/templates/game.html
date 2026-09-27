@@ -47,6 +47,19 @@
                         <button type="button" class="btn" id="decline-btn">Decline</button>
                     </div>
                 </div>
+                <div id="auction" class="panel panel-auction" hidden aria-live="polite">
+                    <p id="auction-text" class="auction-title"></p>
+                    <p id="auction-status" class="auction-status"></p>
+                    <p id="auction-bidders" class="muted small"></p>
+                    <form id="auction-form" class="auction-form" autocomplete="off">
+                        <div class="auction-quick" id="auction-quick"></div>
+                        <div class="auction-row">
+                            <input id="auction-amount" type="number" min="1" step="1" aria-label="Your bid (&pound;)">
+                            <button type="submit" class="btn btn-primary" id="bid-btn">Bid</button>
+                            <button type="button" class="btn" id="pass-auction-btn">Drop out</button>
+                        </div>
+                    </form>
+                </div>
                 <div id="travel" class="panel panel-travel" hidden>
                     <p id="travel-text"></p>
                     <div id="travel-options" class="travel-options"></div>

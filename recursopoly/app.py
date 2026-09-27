@@ -427,12 +427,16 @@ def note_activity(game, name):
 
 
 def turn_timer_loop():
-    """Background task: end turns that have been idle too long."""
+    """Background task: close quiet auctions and end turns that have been
+    idle too long."""
     while True:
         socketio.sleep(1)
         with state_lock:
             for game in list(games.values()):
-                if game.end_idle_turn(game.turn_timer):
+                if game.end_idle_auction():
+                    log.info("Recursopoly game %s: auction closed", game.join_code)
+                    broadcast_state(game)
+                elif game.end_idle_turn(game.turn_timer):
                     log.info("Recursopoly game %s: turn timed out", game.join_code)
                     broadcast_state(game)
 
@@ -630,6 +634,17 @@ def on_respond_trade(data):
 @socketio.on("cancel_trade")
 def on_cancel_trade(data):
     player_action(lambda g, n: g.cancel_trade(n, _int(data, "trade_id")))
+
+
+@socketio.on("bid")
+def on_bid(data):
+    """{"amount": n}: any player still in the running auction may bid."""
+    player_action(lambda g, n: g.bid(n, _int(data, "amount")))
+
+
+@socketio.on("pass_auction")
+def on_pass_auction(_data=None):
+    player_action(lambda g, n: g.pass_auction(n))
 
 
 def _turn_timer_value(raw):

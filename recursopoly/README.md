@@ -15,6 +15,7 @@ The game currently includes:
   the adult-themed **AMST** rule set
 - **Phase 5:** nested boards and train travel (the **Recursopoly** rule set)
 - **Phase 6:** leaderboard, game history, spectators, chat and a turn timer
+- **Phase 7:** auctions
 
 Everything runs on Flask and Flask-SocketIO. There is **no database**:
 rule sets and boards are JSON files, server settings and card decks are
@@ -192,6 +193,24 @@ plain `.txt` files, and scores are appended to a `.csv` file.
   passes on. An unpaid debt carries over to their next turn. A countdown
   shows on the game page. `0` (the default) turns it off.
 
+## Features (Phase 7)
+
+- **Auctions (optional).** Turn on `auctions.enabled` in a rule set (or
+  tick **Auction properties nobody buys** in the lobby or on the Settings
+  page). When a player declines a property, or lands on one they can't
+  afford, it goes up for auction to every player, the lander included.
+  - Everyone sees the auction panel. Players still bidding type a bid or
+    use the quick buttons, or **Drop out**. The top bidder can't drop out.
+  - A bid must beat the top bid (and be at least `auctions.min_bid`) and
+    can't be more than the bidder's money.
+  - The auction closes when everyone else has dropped out, or when nobody
+    has bid for `auctions.seconds`. The top bidder pays their bid and
+    gets the property; with no bids it stays with the bank.
+  - Players in debt, without enough money for the opening bid, or who
+    still need to lap the board (`must_lap_before_buying`) can't bid.
+  - Stakes in pooled squares are never auctioned. The turn timer and the
+    disconnect skip wait for an auction to finish.
+
 ## Changing settings from the web page
 
 - **For one game (anyone hosting):** in the lobby, the host clicks
@@ -313,6 +332,9 @@ Here is AMST:
 | `pooled_squares` | `payout_trigger` | `on_landing` | `on_landing`: anyone landing pays the pot out. `on_stakeholder_landing`: only a stakeholder landing does |
 | `pooled_squares` | `sell_back_percent` | 50 | Percentage of a stake's buy-in the bank pays when a stake is sold back |
 | `travel` | `ticket_prices` | `[]` | Train fare to reach a station on each board, in board order. Needed (one per board) when a rule set has several boards |
+| `auctions` | `enabled` | false | Auction properties that the lander declines or can't afford |
+| `auctions` | `min_bid` | 10 | Lowest opening bid (at least 1) |
+| `auctions` | `seconds` | 20 | An auction closes this long after the last bid (at least 5) |
 | `travel` | `choose_destination` | true | `true`: landing on a station offers tickets to any station on another board. `false`: automatic tickets, one board inward (and from the innermost board back to the outer board) |
 | `pooled_squares` | `payout_split` | `by_stake` | `by_stake`: in proportion to stakes (unsold stakes' share stays in the pot). `equal`: split evenly between stakeholders |
 

@@ -802,3 +802,14 @@ details.ruleset-card > summary::after { content: " \25BE"; color: var(--muted); 
 .unlocked-bar { display: flex; justify-content: space-between; align-items: center; font-weight: 700; color: var(--good); }
 .unlocked-bar .btn { margin-top: 0; }
 .passcode-section #rs-passcode-status { grid-column: 1 / -1; margin: 0; }
+
+/* ---- Auctions (Phase 7) -------------------------------------------------- */
+.panel-auction { background: #fff8e1; border-color: var(--warn); }
+.panel-auction p { margin: 0 0 6px; }
+.auction-title { font-weight: 700; }
+.auction-status { font-weight: 700; color: var(--good); }
+.auction-status.is-urgent { color: var(--accent); }
+.auction-form .btn { margin-top: 0; }
+.auction-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.auction-row { display: flex; gap: 6px; align-items: center; }
+.auction-row input { flex: 1; min-width: 0; margin: 0; }

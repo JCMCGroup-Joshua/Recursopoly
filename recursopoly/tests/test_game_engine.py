@@ -407,6 +407,123 @@ class TurnTests(unittest.TestCase):
             self.game.roll("Alice", dice=(1, 2))
 
 
+class AuctionTests(unittest.TestCase):
+    """Phase 7: properties nobody buys are auctioned."""
+
+    def setUp(self):
+        self.game = make_game(players=("Alice", "Bob", "Carol"), auction_enabled=True,
+                              auction_min_bid=10, auction_seconds=20)
+        self.game.start("Alice")
+        self.alice, self.bob, self.carol = (self.game.get_player(n) for n in ("Alice", "Bob", "Carol"))
+        self.square = self.game.boards[0].square(3)  # Whitechapel Road, £60
+
+    def decline(self, dice=(1, 2)):
+        self.game.roll("Alice", dice=dice)
+        self.game.decide("Alice", "decline")
+        return self.game.auction
+
+    def test_decline_starts_auction_for_everyone(self):
+        auction = self.decline()
+        self.assertEqual(auction["square"], self.square.name)
+        self.assertEqual(auction["bidders"], ["Alice", "Bob", "Carol"])
+        self.assertEqual(self.game.turn_state, TurnState.AWAITING_DECISION)
+        with self.assertRaises(GameError):
+            self.game.decide("Alice", "buy")  # it's an auction now
+        with self.assertRaises(GameError):
+            self.game.roll("Alice", dice=(1, 2))
+
+    def test_highest_bidder_wins_when_others_pass(self):
+        self.decline()
+        with self.assertRaises(GameError):
+            self.game.bid("Bob", 5)  # below the opening bid
+        self.game.bid("Bob", 20)
+        with self.assertRaises(GameError):
+            self.game.bid("Carol", 20)  # must beat the top bid
+        with self.assertRaises(GameError):
+            self.game.pass_auction("Bob")  # top bidder can't drop out
+        self.game.bid("Carol", 45)
+        self.game.pass_auction("Alice")
+        self.assertIsNotNone(self.game.auction)
+        self.game.pass_auction("Bob")
+        self.assertIsNone(self.game.auction)
+        self.assertEqual(self.square.owner, "Carol")
+        self.assertEqual(self.carol.money, 1500 - 45)
+        self.assertEqual(self.bob.money, 1500)
+        self.assertEqual(self.game.current_player.name, "Bob")  # Alice's turn went on
+        with self.assertRaises(GameError):
+            self.game.bid("Bob", 100)
+
+    def test_everyone_passing_leaves_it_with_the_bank(self):
+        self.decline()
+        for name in ("Alice", "Bob", "Carol"):
+            self.game.pass_auction(name)
+        self.assertIsNone(self.game.auction)
+        self.assertEqual(self.square.stakes, [])
+        self.assertEqual(self.game.current_player.name, "Bob")
+
+    def test_auction_closes_after_quiet_seconds(self):
+        self.game.roll("Alice", dice=(1, 2))
+        self.game.pending_decision["roll_again"] = False
+        self.game.decide("Alice", "decline")
+        start = self.game.auction["ends_at"] - 20
+        self.game.bid("Bob", 30, now=start + 10)
+        self.assertFalse(self.game.end_idle_auction(now=start + 25))  # timer restarted by the bid
+        self.assertFalse(self.game.end_idle_turn(1, now=start + 1000))  # turn timer waits
+        self.assertTrue(self.game.end_idle_auction(now=start + 31))
+        self.assertEqual(self.square.owner, "Bob")
+
+    def test_doubles_roll_again_after_auction(self):
+        self.game.roll("Alice", dice=(3, 3))  # Angel Islington, doubles
+        self.game.decide("Alice", "decline")
+        for name in ("Alice", "Bob", "Carol"):
+            self.game.pass_auction(name)
+        self.assertEqual(self.game.current_player.name, "Alice")
+        self.assertEqual(self.game.turn_state, TurnState.WAITING_TO_ROLL)
+
+    def test_cant_afford_goes_to_auction(self):
+        self.alice.money = 40
+        self.game.roll("Alice", dice=(1, 2))
+        auction = self.game.auction
+        self.assertEqual(auction["bidders"], ["Alice", "Bob", "Carol"])
+        self.game.bid("Bob", 61)
+        with self.assertRaises(GameError):
+            self.game.bid("Alice", 62)  # only has £40
+
+    def test_bidder_leaving_drops_their_bids(self):
+        self.decline()
+        self.game.bid("Bob", 20)
+        self.game.bid("Carol", 30)
+        self.game.remove_player("Carol")
+        self.assertEqual(self.game.auction["high_bidder"], "Bob")
+        self.game.pass_auction("Alice")
+        self.assertEqual(self.square.owner, "Bob")
+        self.assertEqual(self.bob.money, 1480)
+
+    def test_disconnected_lander_waits_for_auction(self):
+        self.decline()
+        self.game.mark_disconnected("Alice", now=100)
+        self.assertFalse(self.game.skip_turn_if_disconnected(now=200, grace=5))
+        self.assertIsNotNone(self.game.auction)
+
+    def test_off_by_default(self):
+        game = make_game(players=("Alice", "Bob"))
+        game.start("Alice")
+        game.roll("Alice", dice=(1, 2))
+        game.decide("Alice", "decline")
+        self.assertIsNone(game.auction)
+        self.assertEqual(game.current_player.name, "Bob")
+
+    def test_stakes_are_not_auctioned(self):
+        game = make_game(players=("Alice", "Bob"), ruleset="amst", auction_enabled=True)
+        game.start("Alice")
+        pool = game.boards[0].pools()[0]
+        game.get_player("Alice").position = Position(0, pool.index)
+        game._land_on_pool(game.get_player("Alice"), pool)
+        if game.pending_decision:
+            game.decide("Alice", "decline")
+        self.assertIsNone(game.auction)
+
+
 class PropertyTests(unittest.TestCase):
     """Phase 2: buying, rent and tax."""
 

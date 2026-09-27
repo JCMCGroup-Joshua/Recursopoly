@@ -304,7 +304,7 @@
 
     var SECTION_TITLES = {
         players: "Players", economy: "Money", building: "Building", house_rules: "House rules",
-        pooled_squares: "Pooled squares", travel: "Train travel"
+        pooled_squares: "Pooled squares", travel: "Train travel", auctions: "Auctions"
     };
 
     function jsonData(id) {
@@ -834,6 +834,8 @@
             indicator.textContent = state.winner ? state.winner + " wins!" : "Game over";
         } else if (self && self.bankrupt) {
             indicator.textContent = "You are bankrupt. You can keep watching.";
+        } else if (decision && decision.type === "auction") {
+            indicator.textContent = decision.square + " is up for auction!";
         } else if (myTurn && decision && decision.type === "debt") {
             indicator.textContent = "You owe money! Raise it or declare bankruptcy.";
         } else if (myTurn && decision) {
@@ -869,6 +871,71 @@
         renderBuy(state, self, myTurn && decision && (decision.type === "buy" || decision.type === "buy_stake"));
         renderDebt(state, self, myTurn && decision && decision.type === "debt");
         renderTravel(state, self, myTurn && decision && decision.type === "travel");
+        renderAuction(state, self, decision && decision.type === "auction" ? decision : null);
+    }
+
+    // ---- Auctions: everyone sees the panel; players still in it can bid.
+    var auctionState = null;  // {endsAt, offset} for the countdown
+    var auctionTick = null;
+    var auctionKey = null;    // square + high bid last shown, to refill the bid box
+
+    function renderAuction(state, self, d) {
+        var box = $("auction");
+        box.hidden = !d;
+        if (!d) {
+            auctionState = null;
+            auctionKey = null;
+            return;
+        }
+        $("auction-text").textContent = "\u{1F528} Auction: " + d.square +
+            (d.price ? " (list price " + formatMoney(d.price) + ")" : "");
+        auctionState = { endsAt: d.ends_at, offset: Date.now() / 1000 - state.server_time, d: d };
+        updateAuctionStatus();
+        if (!auctionTick) auctionTick = setInterval(updateAuctionStatus, 500);
+
+        var stillIn = d.bidders.filter(function (n) { return d.passed.indexOf(n) < 0; });
+        $("auction-bidders").textContent = "Still bidding: " + stillIn.join(", ") +
+            (d.passed.length ? " \u00b7 Dropped out: " + d.passed.join(", ") : "");
+
+        var bidding = !!self && stillIn.some(function (n) { return isMe(n); });
+        var top = !!self && d.high_bidder !== null && isMe(d.high_bidder);
+        var lowest = Math.max(d.min_bid, d.high_bid + 1);
+        $("auction-form").hidden = !bidding;
+        if (!bidding) return;
+        var input = $("auction-amount");
+        input.min = lowest;
+        input.max = self.money;
+        var key = d.square + ":" + d.high_bid;
+        if (key !== auctionKey) {
+            auctionKey = key;
+            input.value = Math.min(self.money, Math.max(lowest, d.high_bid + 10));
+        }
+        $("bid-btn").disabled = self.money < lowest;
+        $("pass-auction-btn").disabled = top;
+        $("pass-auction-btn").title = top ? "You have the top bid" : "";
+
+        var quick = $("auction-quick");
+        quick.replaceChildren();
+        [1, 10, 50, 100].forEach(function (step) {
+            var amount = d.high_bid ? d.high_bid + step : Math.max(d.min_bid, step);
+            if (amount > self.money || (!d.high_bid && step !== 1 && amount === d.min_bid)) return;
+            var b = el("button", "btn btn-small", d.high_bid ? "+" + formatMoney(step) : formatMoney(amount));
+            b.type = "button";
+            b.title = "Bid " + formatMoney(amount);
+            b.addEventListener("click", function () { socket.emit("bid", { amount: amount }); });
+            quick.appendChild(b);
+        });
+    }
+
+    function updateAuctionStatus() {
+        if (!auctionState) return;
+        var d = auctionState.d;
+        var left = Math.max(0, Math.ceil(auctionState.endsAt - (Date.now() / 1000 - auctionState.offset)));
+        var status = d.high_bidder
+            ? "Top bid " + formatMoney(d.high_bid) + " by " + (isMe(d.high_bidder) ? "you" : d.high_bidder)
+            : "No bids yet \u00b7 opening bid " + formatMoney(d.min_bid);
+        $("auction-status").textContent = status + " \u00b7 closes in " + left + "s";
+        $("auction-status").classList.toggle("is-urgent", left <= 5);
     }
 
     // Train tickets from a station to stations on the other boards.
@@ -1182,6 +1249,11 @@
             socket.emit("decide", { choice: choice });
         }
         $("buy-btn").addEventListener("click", function () { decide("buy", ["buy-btn", "decline-btn"]); });
+        $("auction-form").addEventListener("submit", function (ev) {
+            ev.preventDefault();
+            socket.emit("bid", { amount: parseInt($("auction-amount").value, 10) });
+        });
+        $("pass-auction-btn").addEventListener("click", function () { socket.emit("pass_auction"); });
         $("decline-btn").addEventListener("click", function () { decide("decline", ["buy-btn", "decline-btn"]); });
         $("pay-debt-btn").addEventListener("click", function () { decide("pay", ["pay-debt-btn"]); });
         $("bankrupt-btn").addEventListener("click", function () {

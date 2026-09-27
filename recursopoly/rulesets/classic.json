@@ -38,5 +38,10 @@
   "travel": {
     "ticket_prices": [],
     "choose_destination": true
+  },
+  "auctions": {
+    "enabled": false,
+    "min_bid": 10,
+    "seconds": 20
   }
 }
