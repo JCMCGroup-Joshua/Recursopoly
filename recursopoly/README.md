@@ -205,9 +205,13 @@ plain `.txt` files, and scores are appended to a `.csv` file.
     to pick for future games.
   - The **Settings** page (`/settings`) edits any rule set (save changes,
     or save as a new rule set) and the server settings in `config.txt`.
+    The page is locked until the admin password is entered: nothing is
+    shown until the server has checked the password. **Lock** hides it
+    all again, and so does reloading the page.
 - Saving needs `admin_password` from `config.txt`. While it is empty,
   saving from the web is turned off. The server checks the password; the
-  browser never stores it.
+  browser never stores it. After 5 wrong passwords in 5 minutes, that
+  address must wait before trying again.
 - Rule set files are written with only the values that differ from
   Classic, so they keep following Classic for everything else. Saving
   rewrites the file in that tidy form.

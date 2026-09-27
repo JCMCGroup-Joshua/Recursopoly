@@ -15,66 +15,76 @@
 
     <main class="stats-page settings-page">
         <div id="settings-message" class="banner" hidden></div>
-        {% if not saving_enabled %}
-        <div class="banner banner-info">Saving from the web is turned off. Set <code>admin_password</code> in
-            config.txt and restart the server to enable it. You can still change rules for a single game
-            in its lobby.</div>
-        {% endif %}
 
-        <section class="card">
-            <h2>Admin password</h2>
-            <p class="muted small">Needed for every save on this page. It is checked by the server and never stored
-                in the browser.</p>
-            <input id="admin-password" type="password" autocomplete="current-password" {% if not saving_enabled %}disabled{% endif %}>
-        </section>
-
-        <section class="card">
-            <h2>Rule sets</h2>
-            <p class="muted small">Changes are saved to the rule set's file in rulesets/ and apply to games created
-                afterwards. Values that match Classic are left out of the file, so they keep following Classic.</p>
-            <label for="ruleset-picker">Rule set</label>
-            <select id="ruleset-picker"></select>
-            <p id="ruleset-boards" class="muted small"></p>
-            <form id="ruleset-form" autocomplete="off">
-                <div class="save-form">
-                    <label>Name <input id="rs-name" maxlength="60" required></label>
-                    <label class="wide">Description <input id="rs-description" maxlength="300"></label>
-                </div>
-                <div id="ruleset-fields" class="rule-form"></div>
-                <div class="panel-actions">
-                    <button type="submit" class="btn btn-primary" {% if not saving_enabled %}disabled{% endif %}>Save changes</button>
-                </div>
-                <div class="save-as">
-                    <label>Save as a new rule set with id
-                        <input id="rs-new-id" pattern="[a-z0-9_\-]{1,40}" placeholder="e.g. house_rules"></label>
-                    <button type="button" class="btn" id="save-as-btn" {% if not saving_enabled %}disabled{% endif %}>Save as new</button>
-                </div>
+        <!-- Locked until the server accepts the admin password: the page holds
+             no settings, they arrive from /settings/unlock. -->
+        <section class="card unlock-card" id="unlock-card">
+            <h2>&#128274; Settings are locked</h2>
+            {% if saving_enabled %}
+            <p class="muted">Enter the admin password to view and change rule sets and server settings.</p>
+            <form id="unlock-form" class="inline-form" autocomplete="off">
+                <input id="unlock-password" type="password" autocomplete="current-password"
+                       aria-label="Admin password" placeholder="Admin password" required>
+                <button type="submit" class="btn btn-primary">Unlock</button>
             </form>
+            {% else %}
+            <p>No admin password is set, so settings can't be changed from the web. Set
+                <code>admin_password</code> in config.txt and restart the server.</p>
+            <p class="muted small">You can still change the rules for a single game in its lobby.</p>
+            {% endif %}
         </section>
 
-        <section class="card">
-            <h2>Server settings</h2>
-            <p class="muted small">Saved to config.txt. Settings marked &#10227; need a server restart.</p>
-            <form id="server-form" autocomplete="off">
-                <div id="server-fields" class="rule-form"></div>
-                <fieldset class="rule-section">
-                    <legend>Admin password</legend>
-                    <label class="rule-field"><span class="rule-label">New admin password (leave blank to keep)</span>
-                        <input id="new-password" type="password" autocomplete="new-password"></label>
-                </fieldset>
-                <div class="panel-actions">
-                    <button type="submit" class="btn btn-primary" {% if not saving_enabled %}disabled{% endif %}>Save server settings</button>
-                </div>
-            </form>
-        </section>
+        <div id="settings-unlocked" class="settings-unlocked" hidden>
+            <div class="unlocked-bar">
+                <span>&#128275; Unlocked</span>
+                <button type="button" class="btn btn-small" id="lock-btn">Lock</button>
+            </div>
+
+            <section class="card">
+                <h2>Rule sets</h2>
+                <p class="muted small">Changes are saved to the rule set's file in rulesets/ and apply to games
+                    created afterwards. Values that match Classic are left out of the file, so they keep following
+                    Classic.</p>
+                <label for="ruleset-picker">Rule set</label>
+                <select id="ruleset-picker"></select>
+                <p id="ruleset-boards" class="muted small"></p>
+                <form id="ruleset-form" autocomplete="off">
+                    <div class="save-form">
+                        <label>Name <input id="rs-name" maxlength="60" required></label>
+                        <label class="wide">Description <input id="rs-description" maxlength="300"></label>
+                    </div>
+                    <div id="ruleset-fields" class="rule-form"></div>
+                    <div class="panel-actions">
+                        <button type="submit" class="btn btn-primary">Save changes</button>
+                    </div>
+                    <div class="save-as">
+                        <label>Save as a new rule set with id
+                            <input id="rs-new-id" pattern="[a-z0-9_\-]{1,40}" placeholder="e.g. house_rules"></label>
+                        <button type="button" class="btn" id="save-as-btn">Save as new</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="card">
+                <h2>Server settings</h2>
+                <p class="muted small">Saved to config.txt. Settings marked &#10227; need a server restart.</p>
+                <form id="server-form" autocomplete="off">
+                    <div id="server-fields" class="rule-form"></div>
+                    <fieldset class="rule-section">
+                        <legend>Admin password</legend>
+                        <label class="rule-field"><span class="rule-label">New admin password (leave blank to keep)</span>
+                            <input id="new-password" type="password" autocomplete="new-password"></label>
+                    </fieldset>
+                    <div class="panel-actions">
+                        <button type="submit" class="btn btn-primary">Save server settings</button>
+                    </div>
+                </form>
+            </section>
+        </div>
     </main>
 
     <footer class="site-footer">Recursopoly</footer>
 
-    <script id="rule-fields" type="application/json">{{ rule_fields | tojson }}</script>
-    <script id="rulesets-data" type="application/json">{{ rulesets | tojson }}</script>
-    <script id="server-fields-data" type="application/json">{{ server_fields | tojson }}</script>
-    <script id="server-values" type="application/json">{{ server_values | tojson }}</script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="{{ url_for('static', filename='js/recursopoly.js') }}"></script>
 </body>
