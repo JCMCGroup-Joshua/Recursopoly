@@ -927,5 +927,118 @@ class AmstTests(unittest.TestCase):
         self.assertEqual(self.board.square(20).type, "free")
 
 
+class NestedBoardTests(unittest.TestCase):
+    """Phase 5: boards within boards and train travel."""
+
+    def setUp(self):
+        self.game = make_game(players=("Alice", "Bob"), ruleset="recursopoly")
+        self.game.start("Alice")
+        self.alice, self.bob = self.game.get_player("Alice"), self.game.get_player("Bob")
+
+    def land_on_kings_cross(self, dice=(2, 3)):
+        """Alice rolls from GO onto King's Cross (outer board) and declines it."""
+        result = self.game.roll("Alice", dice=dice)
+        self.assertEqual(result["decision"]["type"], "buy")
+        self.game.decide("Alice", "decline")
+        return self.game.pending_decision
+
+    def test_boards_get_smaller_and_pricier(self):
+        sizes = [self.game.boards[b].size for b in sorted(self.game.boards)]
+        self.assertEqual(sizes, [40, 24, 12])
+        self.assertEqual([self.game.go_salary_for(self.game.boards[b]) for b in (0, 1, 2)], [200, 300, 400])
+        top = [max(sq.attributes.get("price", 0) for sq in self.game.boards[b].squares) for b in (0, 1, 2)]
+        self.assertEqual(top, sorted(top))
+
+    def test_station_offers_tickets_to_other_boards(self):
+        decision = self.land_on_kings_cross()
+        self.assertEqual(decision["type"], "travel")
+        self.assertEqual(decision["from"], "King's Cross Station")
+        options = {(o["board_id"], o["index"]): o["price"] for o in decision["options"]}
+        self.assertEqual(options, {(1, 5): 150, (1, 15): 150, (2, 2): 300})
+        self.game.decide("Alice", "travel:2:2")
+        self.assertEqual(self.alice.position, Position(2, 2))
+        self.assertEqual(self.alice.money, 1500 - 300)
+        self.assertEqual(self.game.current_player.name, "Bob")
+        events = [e.event_type for e in self.game.drain_events()]
+        self.assertIn("ticket_purchased", events)
+        self.assertIn("board_changed", events)
+        self.assertEqual(self.alice.attributes["journeys"], 1)
+
+    def test_next_roll_continues_on_the_new_board(self):
+        self.land_on_kings_cross()
+        self.game.decide("Alice", "travel:1:5")
+        self.game.current_index = 0
+        self.game.turn_state = TurnState.WAITING_TO_ROLL
+        self.game.roll("Alice", dice=(1, 2))
+        self.assertEqual(self.alice.position, Position(1, 8))  # Middle Ring square 8
+        # Passing the Middle Ring's GO pays its own salary.
+        self.alice.position = Position(1, 22)
+        self.game.current_index = 0
+        self.game.turn_state = TurnState.WAITING_TO_ROLL
+        money_before = self.alice.money
+        self.game.roll("Alice", dice=(1, 2))
+        self.assertEqual(self.alice.position, Position(1, 1))
+        self.assertEqual(self.alice.money, money_before + 300)
+
+    def test_stay_and_bad_choices(self):
+        self.land_on_kings_cross()
+        with self.assertRaises(GameError):
+            self.game.decide("Alice", "travel:0:15")  # not a destination from here
+        with self.assertRaises(GameError):
+            self.game.decide("Alice", "fly")
+        self.game.decide("Alice", "stay")
+        self.assertEqual(self.alice.position, Position(0, 5))
+        self.assertEqual(self.game.current_player.name, "Bob")
+
+    def test_doubles_still_roll_again_after_travel(self):
+        self.alice.position = Position(0, 1)
+        result = self.game.roll("Alice", dice=(2, 2))
+        self.game.decide("Alice", "decline")
+        self.game.decide("Alice", "travel:1:15")
+        self.assertEqual(self.game.current_player.name, "Alice")
+        self.assertEqual(self.game.turn_state, TurnState.WAITING_TO_ROLL)
+
+    def test_only_affordable_tickets_are_offered(self):
+        self.alice.money = 200
+        decision = self.land_on_kings_cross()
+        self.assertEqual({o["price"] for o in decision["options"]}, {150})
+        self.alice.money = 100
+        self.game.decide("Alice", "stay")
+        self.game.current_index = 0
+        self.alice.position = Position(0, 0)
+        self.game.turn_state = TurnState.WAITING_TO_ROLL
+        self.game.roll("Alice", dice=(2, 3))  # can't afford King's Cross or any ticket
+        self.assertIsNone(self.game.pending_decision)
+
+    def test_jail_is_on_the_players_board(self):
+        self.alice.position = Position(2, 7)
+        self.game.roll("Alice", dice=(1, 1))  # The Core's Go To Jail (square 9)
+        self.assertTrue(self.alice.in_jail)
+        self.assertEqual(self.alice.position, Position(2, 3))
+
+    def test_single_board_rule_sets_never_offer_travel(self):
+        game = make_game(players=("Alice", "Bob"))
+        game.start("Alice")
+        game.roll("Alice", dice=(2, 3))
+        game.decide("Alice", "decline")
+        self.assertIsNone(game.pending_decision)
+        self.assertEqual(game.current_player.name, "Bob")
+
+    def test_ticket_prices_needed_for_every_board(self):
+        base = json.load(open(os.path.join(ROOT, "rulesets", "classic.json"), encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "short.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"boards": ["boards/classic_board.json", "boards/recursopoly_core.json"],
+                           "travel": {"ticket_prices": [50]}}, fh)
+            with self.assertRaises(ValueError):
+                load_ruleset(path, ROOT, base=base)
+
+    def test_summary_lists_boards_and_fares(self):
+        rows = {r["label"]: r["value"] for r in self.game.ruleset_summary()}
+        self.assertIn("The Middle Ring (24 squares, Go £300)", rows["Boards"])
+        self.assertEqual(rows["Train tickets"], "£50 to Classic London, £150 to The Middle Ring, £300 to The Core")
+
+
 if __name__ == "__main__":
     unittest.main()
