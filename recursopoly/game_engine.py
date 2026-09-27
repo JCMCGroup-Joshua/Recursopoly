@@ -24,11 +24,17 @@ Key design points:
 * Payments go through ``Game._pay``. A player who can't pay runs up a debt
   and must raise money or declare bankruptcy. Money paid to the bank may be
   diverted into a pooled square's pot, as the rule set says.
+* A property the lander declines (or can't afford) can be auctioned to
+  every player (rule ``auction_enabled``). The auction is an "auction"
+  pending decision that anyone still bidding may answer with
+  :meth:`Game.bid` or :meth:`Game.pass_auction`; it closes when only the
+  top bidder is left or after ``auction_seconds`` without a new bid.
 * The engine never writes files. Anything worth logging is queued as a
   :class:`GameEvent` which the caller drains with :meth:`Game.drain_events`.
 """
 
 import copy
+import dataclasses
 import random
 import secrets
 import time
@@ -767,6 +773,8 @@ class Game:
             return
         if was_current:
             self._advance_turn()
+        else:
+            self._leave_auction(player)
 
     def set_rules(self, requested_by, values, turn_timer=None):
         """The host changes this game's rule values before it starts.
@@ -880,6 +888,8 @@ class Game:
             return False
         if player.active:
             return False
+        if self.pending_decision and self.pending_decision["type"] == "auction":
+            return False  # let the auction finish; the turn is skipped after it
         if player.in_game and player.disconnected_since is not None:
             now = time.time() if now is None else now
             if now - player.disconnected_since < grace:
@@ -916,6 +926,8 @@ class Game:
             return False
         player = self.current_player
         decision = self.pending_decision
+        if decision and decision["type"] == "auction":
+            return False  # the auction has its own timer (end_idle_auction)
         self._say(f"{player.name} ran out of time; their turn is over.")
         if decision and decision["type"] in ("buy", "buy_stake"):
             self._say(f"{player.name} did not buy {decision['square']}.")
@@ -942,7 +954,9 @@ class Game:
         d1, d2 = dice if dice is not None else self.roll_dice()
         total = d1 + d2
         doubles = d1 == d2
-        self.last_roll = {"player": player.name, "dice": [d1, d2], "total": total, "doubles": doubles}
+        # "id" counts rolls so the page can tell a new roll from a repeat.
+        self.last_roll = {"id": (self.last_roll or {}).get("id", 0) + 1, "player": player.name,
+                          "dice": [d1, d2], "total": total, "doubles": doubles}
         result = {"dice": [d1, d2], "total": total, "doubles": doubles,
                   "passed_go": 0, "jailed": False, "roll_again": False}
         roll_details = f"dice={d1}+{d2}; total={total}; doubles={'yes' if doubles else 'no'}"
@@ -1035,8 +1049,14 @@ class Game:
             else:
                 self._say(f"{player.name} decided not to buy {square.name}.")
             self.pending_decision = None
+            if (choice == "decline" and decision["type"] == "buy"
+                    and self._start_auction(square, decision.get("roll_again", False))):
+                return
             self._continue_turn(player, decision.get("roll_again", False))
             return
+
+        if decision["type"] == "auction":
+            raise GameError("bad_state", "An auction is running: bid or pass.")
 
         if decision["type"] == "debt":
             if choice == "pay":
@@ -1330,8 +1350,12 @@ class Game:
 
     def _offer_purchase(self, player, square):
         price = square.attributes.get("price")
-        if price is None or not self._may_buy(player, square, price):
+        if price is None:
             return  # no price in the board file means not for sale
+        if not self._may_buy(player, square, price):
+            if not player.debts:
+                self._start_auction(square)  # the others may still want it
+            return
         self.pending_decision = {
             "type": "buy",
             "player": player.name,
@@ -1342,6 +1366,153 @@ class Game:
         }
         self.turn_state = TurnState.AWAITING_DECISION
         self._say(f"{player.name} can buy {square.name} for {money(price)}.")
+
+    # -- auctions ----------------------------------------------------------
+
+    def _may_bid(self, player):
+        return (player.in_game and not player.debts
+                and not (self._rule("must_lap_before_buying") and player.laps < 1)
+                and player.money >= self._rule("auction_min_bid"))
+
+    def _start_auction(self, square, roll_again=False, now=None):
+        """Put an unowned square up for auction to every player who may bid
+        (the lander included). Returns True if an auction started."""
+        if not self._rule("auction_enabled"):
+            return False
+        bidders = [p.name for p in self.players_in_game() if self._may_bid(p)]
+        if not bidders:
+            self._say(f"Nobody can bid for {square.name}, so it stays with the bank.")
+            return False
+        now = time.time() if now is None else now
+        position = self._square_position(square)
+        self.pending_decision = {
+            "type": "auction",
+            "player": self.current_player.name,
+            "board_id": position.board_id,
+            "index": position.index,
+            "square": square.name,
+            "price": square.attributes.get("price"),
+            "min_bid": self._rule("auction_min_bid"),
+            "bids": [],  # [{"player", "amount"}], highest last
+            "high_bid": 0,
+            "high_bidder": None,
+            "bidders": bidders,
+            "passed": [],
+            "seconds": self._rule("auction_seconds"),
+            "ends_at": now + self._rule("auction_seconds"),
+            "roll_again": roll_again,
+        }
+        self.turn_state = TurnState.AWAITING_DECISION
+        self._say(f"{square.name} is up for auction! Bids start at "
+                  f"{money(self._rule('auction_min_bid'))}.")
+        self._event("auction_started", self.current_player, details=f"square={square.name}")
+        return True
+
+    def _square_position(self, square):
+        for board_id, board in self.boards.items():
+            if board.square(square.index) is square:
+                return Position(board_id, square.index)
+        raise ValueError(f"{square.name} is not on any board")  # pragma: no cover
+
+    @property
+    def auction(self):
+        """The running auction (a pending decision), or None."""
+        decision = self.pending_decision
+        return decision if decision and decision["type"] == "auction" else None
+
+    def _auction_bidder(self, name):
+        auction = self.auction
+        if auction is None or self.status != GameStatus.IN_PROGRESS:
+            raise GameError("no_auction", "There is no auction running.")
+        player = self._require_player(name)
+        if player.name not in auction["bidders"] or player.name in auction["passed"]:
+            raise GameError("not_bidding", "You are not bidding in this auction.")
+        return auction, player
+
+    def bid(self, name, amount, now=None):
+        """Bid ``amount`` in the running auction. A bid must beat the highest
+        bid (and be at least the opening bid) and the bidder must have the
+        money."""
+        auction, player = self._auction_bidder(name)
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            raise GameError("bad_bid", "A bid must be a whole number.") from None
+        lowest = max(auction["min_bid"], auction["high_bid"] + 1)
+        if amount < lowest:
+            raise GameError("bad_bid", f"Bid at least {money(lowest)}.")
+        if amount > player.money:
+            raise GameError("cant_afford", f"You only have {money(player.money)}.")
+        now = time.time() if now is None else now
+        auction["bids"].append({"player": player.name, "amount": amount})
+        auction["high_bid"], auction["high_bidder"] = amount, player.name
+        auction["ends_at"] = now + auction["seconds"]
+        self._say(f"{player.name} bids {money(amount)} for {auction['square']}.")
+        self._check_auction_over()
+
+    def pass_auction(self, name):
+        """Drop out of the running auction. The highest bidder can't."""
+        auction, player = self._auction_bidder(name)
+        if player.name == auction["high_bidder"]:
+            raise GameError("bad_state", "You have the highest bid, so you can't drop out.")
+        auction["passed"].append(player.name)
+        self._say(f"{player.name} drops out of the auction.")
+        self._check_auction_over()
+
+    def _leave_auction(self, player):
+        """A player left the game: their bids no longer count."""
+        auction = self.auction
+        if auction is None or player.name not in auction["bidders"]:
+            return
+        auction["bidders"].remove(player.name)
+        if player.name in auction["passed"]:
+            auction["passed"].remove(player.name)
+        auction["bids"] = [b for b in auction["bids"] if b["player"] != player.name]
+        top = auction["bids"][-1] if auction["bids"] else None
+        auction["high_bid"] = top["amount"] if top else 0
+        auction["high_bidder"] = top["player"] if top else None
+        self._check_auction_over()
+
+    def _check_auction_over(self):
+        auction = self.auction
+        still_in = [n for n in auction["bidders"] if n not in auction["passed"]]
+        if auction["high_bidder"] is not None and still_in == [auction["high_bidder"]]:
+            self._close_auction()
+        elif not still_in:
+            self._close_auction()
+
+    def end_idle_auction(self, now=None):
+        """Close the running auction once nobody has bid for
+        ``auction_seconds``. Returns True if it closed."""
+        auction = self.auction
+        if auction is None or self.status != GameStatus.IN_PROGRESS:
+            return False
+        now = time.time() if now is None else now
+        if now < auction["ends_at"]:
+            return False
+        self._close_auction()
+        return True
+
+    def _close_auction(self):
+        auction = self.pending_decision
+        square = self.square_at(Position(auction["board_id"], auction["index"]))
+        winner = self.get_player(auction["high_bidder"]) if auction["high_bidder"] else None
+        amount = auction["high_bid"]
+        if winner is not None and winner.in_game and winner.money >= amount and not square.stakes:
+            winner.money -= amount
+            square.set_owner(winner.name)
+            self._say(f"{winner.name} won the auction and bought {square.name} for {money(amount)}.")
+            self._event("purchase", winner, details=f"square={square.name}; price={amount}; auction=yes")
+        elif winner is not None:
+            self._say(f"{winner.name} can no longer pay {money(amount)}, so {square.name} stays "
+                      f"with the bank.")
+        else:
+            self._say(f"Nobody bid for {square.name}, so it stays with the bank.")
+        self.pending_decision = None
+        self.turn_activity_at = time.time()
+        player = self.current_player
+        if player is not None and player.in_game:
+            self._continue_turn(player, auction.get("roll_again", False))
 
     def _buy(self, player, square):
         price = square.attributes["price"]
@@ -2257,6 +2428,9 @@ class Game:
             ("Hotels per property", str(r("max_hotels_per_property"))),
             ("Doubles before jail", str(r("doubles_before_jail"))),
             ("Lap before buying", yes_no[r("must_lap_before_buying")]),
+            ("Auctions", f"Unbought properties are auctioned (opening bid {money(r('auction_min_bid'))}, "
+                         f"closes {r('auction_seconds')}s after the last bid)"
+             if r("auction_enabled") else "No"),
         ]
         if len(self.boards) > 1:
             rows.append(("Boards", ", ".join(
@@ -2277,6 +2451,66 @@ class Game:
                                   f"{money(self.stake_sell_value(sq))}); collects {feeds}; "
                                   f"pays out {trigger}, split {split}"))
         return [{"label": label, "value": value} for label, value in rows]
+
+    # -- saving and restoring -----------------------------------------------
+
+    # Plain game fields copied as they are into a snapshot.
+    _SNAPSHOT_FIELDS = (
+        "join_code", "rules", "status", "host_name", "current_index", "turn_state", "turn_number",
+        "last_roll", "last_card", "pending_decision", "trades", "_next_trade_id", "eliminated",
+        "winner", "created_at", "turn_activity_at", "turn_timer", "rule_changes", "log",
+    )
+
+    def snapshot(self):
+        """Everything needed to rebuild this game later, as JSON-safe data.
+        The rule set itself (boards, cards) is saved by the caller."""
+        data = {key: copy.deepcopy(getattr(self, key)) for key in self._SNAPSHOT_FIELDS}
+        players = []
+        for p in self.players:
+            entry = dataclasses.asdict(p)
+            entry["position"] = p.position.to_dict()
+            players.append(entry)
+        data["players"] = players
+        data["squares"] = {str(bid): [copy.deepcopy(sq.attributes) for sq in board.squares]
+                           for bid, board in self.boards.items()}
+        data["decks"] = {name: [dataclasses.asdict(c) for c in deck.cards]
+                         for name, deck in self.decks.items()}
+        return data
+
+    @classmethod
+    def restore(cls, data, ruleset, now=None):
+        """Rebuild a game from :meth:`snapshot` data and the rule set it was
+        played with. Every player starts disconnected until they rejoin."""
+        game = cls(data["join_code"], ruleset)
+        for key in cls._SNAPSHOT_FIELDS:
+            if key in data:
+                setattr(game, key, copy.deepcopy(data[key]))
+        game.players = []
+        for entry in data["players"]:
+            entry = dict(entry)
+            entry["position"] = Position(**entry["position"])
+            entry["jail_cards"] = [Card(**c) for c in entry.get("jail_cards", [])]
+            player = Player(**entry)
+            if player.in_game:
+                player.connected = False
+                player.disconnected_since = time.time() if now is None else now
+            game.players.append(player)
+        for bid, squares in data["squares"].items():
+            board = game.boards[int(bid)]
+            if len(squares) != len(board.squares):
+                raise ValueError(f"saved board {bid} has {len(squares)} squares, expected {len(board.squares)}")
+            for square, attributes in zip(board.squares, squares):
+                square.attributes = copy.deepcopy(attributes)
+        for name, cards in data.get("decks", {}).items():
+            if name in game.decks:
+                game.decks[name].cards = [Card(**c) for c in cards]
+        if game.pending_decision and game.pending_decision["type"] == "auction":
+            # Give everyone a fresh auction timer after the restart.
+            game.pending_decision["ends_at"] = (time.time() if now is None else now) + \
+                game.pending_decision["seconds"]
+        if game.turn_activity_at is not None:
+            game.turn_activity_at = time.time() if now is None else now
+        return game
 
     def to_dict(self):
         current = self.current_player

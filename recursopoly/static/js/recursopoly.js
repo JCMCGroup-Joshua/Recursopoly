@@ -304,7 +304,7 @@
 
     var SECTION_TITLES = {
         players: "Players", economy: "Money", building: "Building", house_rules: "House rules",
-        pooled_squares: "Pooled squares", travel: "Train travel"
+        pooled_squares: "Pooled squares", travel: "Train travel", auctions: "Auctions"
     };
 
     function jsonData(id) {
@@ -543,6 +543,129 @@
     // Game page
     // =====================================================================
 
+    // ---- Sounds: tiny tones made with Web Audio (no sound files). Muting
+    // is remembered per browser.
+    var Sound = (function () {
+        var ctx = null;
+        var muted = false;
+        try { muted = localStorage.getItem("recursopoly:muted") === "1"; } catch (e) { /* no storage */ }
+
+        function audio() {
+            if (!ctx) {
+                var Ctx = window.AudioContext || window.webkitAudioContext;
+                if (!Ctx) return null;
+                ctx = new Ctx();
+            }
+            if (ctx.state === "suspended") ctx.resume();
+            return ctx;
+        }
+        // Browsers only allow sound after the first tap or key press.
+        ["pointerdown", "keydown"].forEach(function (type) {
+            document.addEventListener(type, function () { if (!muted) audio(); }, { once: true });
+        });
+
+        function tone(freq, start, length, type, volume) {
+            var c = audio();
+            if (!c || c.state !== "running") return;
+            var t0 = c.currentTime + start;
+            var osc = c.createOscillator(), gain = c.createGain();
+            osc.type = type || "sine";
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.0001, t0);
+            gain.gain.exponentialRampToValueAtTime(volume || 0.12, t0 + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t0 + length);
+            osc.connect(gain);
+            gain.connect(c.destination);
+            osc.start(t0);
+            osc.stop(t0 + length + 0.05);
+        }
+
+        var SOUNDS = {
+            dice: function () {
+                for (var i = 0; i < 6; i++) tone(180 + Math.random() * 500, i * 0.06, 0.04, "square", 0.04);
+            },
+            step: function () { tone(880, 0, 0.04, "triangle", 0.03); },
+            turn: function () { tone(660, 0, 0.16); tone(990, 0.13, 0.3); },
+            coin: function () { tone(1320, 0, 0.08, "square", 0.04); tone(1760, 0.07, 0.22, "square", 0.04); },
+            pay: function () { tone(420, 0, 0.14, "triangle", 0.1); tone(300, 0.11, 0.24, "triangle", 0.1); },
+            bid: function () { tone(1040, 0, 0.07, "triangle", 0.08); },
+            auction: function () { tone(520, 0, 0.1, "square", 0.05); tone(520, 0.16, 0.1, "square", 0.05); },
+            jail: function () { tone(150, 0, 0.4, "sawtooth", 0.05); },
+            win: function () {
+                [523, 659, 784, 1047].forEach(function (f, i) { tone(f, i * 0.12, 0.3, "triangle", 0.1); });
+            }
+        };
+
+        return {
+            play: function (name) {
+                if (muted || !SOUNDS[name]) return;
+                try { SOUNDS[name](); } catch (e) { /* sound is optional */ }
+            },
+            isMuted: function () { return muted; },
+            setMuted: function (value) {
+                muted = value;
+                try { localStorage.setItem("recursopoly:muted", value ? "1" : "0"); } catch (e) { /* ignore */ }
+                if (!value) audio();
+            }
+        };
+    })();
+
+    function initSoundButton() {
+        var btn = $("sound-btn");
+        if (!btn) return;
+        function show() {
+            var on = !Sound.isMuted();
+            btn.textContent = on ? "\u{1F50A}" : "\u{1F507}";
+            btn.setAttribute("aria-pressed", on ? "true" : "false");
+            btn.title = on ? "Sounds on (click to mute)" : "Sounds off (click to turn on)";
+        }
+        btn.addEventListener("click", function () { Sound.setMuted(!Sound.isMuted()); show(); });
+        show();
+    }
+
+    // Sounds for what changed between two game states, from this player's view.
+    function playSounds(before, after) {
+        if (!before || before.join_code !== after.join_code) return;
+        var mine = function (state) {
+            return state.players.filter(function (p) { return isMe(p.name); })[0];
+        };
+        var was = mine(before), now = mine(after);
+        if (after.status === "ended" && before.status !== "ended") { Sound.play("win"); return; }
+        var auctionBefore = before.pending_decision && before.pending_decision.type === "auction"
+            ? before.pending_decision : null;
+        var auctionNow = after.pending_decision && after.pending_decision.type === "auction"
+            ? after.pending_decision : null;
+        if (auctionNow && !auctionBefore) Sound.play("auction");
+        else if (auctionNow && auctionNow.bids.length > auctionBefore.bids.length) Sound.play("bid");
+        if (was && now) {
+            if (now.in_jail && !was.in_jail) Sound.play("jail");
+            else if (now.money > was.money) Sound.play("coin");
+            else if (now.money < was.money) Sound.play("pay");
+        }
+        if (isMe(after.current_player) && !isMe(before.current_player) && after.status === "in_progress") {
+            Sound.play("turn");
+        }
+    }
+
+    // Flash each player's money when it changes, with the difference.
+    var shownMoney = {};
+
+    function flashMoney(state) {
+        var rows = $("game-players").children;
+        state.players.forEach(function (p, i) {
+            var before = shownMoney[p.name];
+            shownMoney[p.name] = p.money;
+            var row = rows[i];
+            var node = row && row.querySelector(".money");
+            if (before === undefined || before === p.money || !node) return;
+            var up = p.money > before;
+            node.classList.add(up ? "money-up" : "money-down");
+            var delta = el("span", "money-delta " + (up ? "is-up" : "is-down"),
+                (up ? "+" : "\u2212") + formatMoney(Math.abs(p.money - before)));
+            node.appendChild(delta);
+        });
+    }
+
     // Grid cell (1-based row/col) for square `i` on a board of `n` squares,
     // walking anticlockwise from the bottom-right corner like Monopoly.
     function squareCell(i, n) {
@@ -653,11 +776,13 @@
         var n = board.size;
         var s = Math.ceil(n / 4);
         container.style.setProperty("--cells", s + 1);
-        var parts = nodes[bid] = { squares: [], tokens: [], buildings: [], pots: [] };
+        var parts = nodes[bid] = { board: container, squares: [], tokens: [], buildings: [], pots: [] };
 
         board.squares.forEach(function (sq) {
             var cell = squareCell(sq.index, n);
             var node = el("div", "square type-" + sq.type);
+            node.dataset.bid = bid;
+            node.dataset.index = sq.index;
             if (sq.index % s === 0) node.classList.add("corner");
             node.style.gridRow = cell.row;
             node.style.gridColumn = cell.col;
@@ -768,17 +893,64 @@
         });
     }
 
+    // ---- Token movement: a token that moved a few squares forward on the
+    // same board hops along the squares; any other move pops in place.
+    var shownAt = {};        // player name -> "board:index" drawn last
+    var moveTimer = null;
+    var MAX_HOP_STEPS = 12;
+
+    function posKey(pos) { return pos.board_id + ":" + pos.index; }
+
     function renderTokens(state) {
+        if (moveTimer) { clearTimeout(moveTimer); moveTimer = null; }
+        var paths = {};
+        var longest = 0;
+        state.players.forEach(function (p) {
+            var from = shownAt[p.name];
+            if (!from || reduceMotion() || p.left || p.bankrupt) return;
+            var parts = from.split(":").map(Number);
+            if (parts[0] !== p.position.board_id || parts[1] === p.position.index) return;
+            var n = boardOf(state, p.position.board_id).size;
+            var steps = (p.position.index - parts[1] + n) % n;
+            if (steps < 1 || steps > MAX_HOP_STEPS) return;
+            var path = [];
+            for (var i = 1; i <= steps; i++) path.push({ board_id: parts[0], index: (parts[1] + i) % n });
+            paths[p.name] = path;
+            longest = Math.max(longest, steps);
+        });
+        if (!longest) { drawTokens(state, {}, {}); return; }
+        var step = 0;
+        (function frame() {
+            step += 1;
+            var at = {}, hopping = {};
+            Object.keys(paths).forEach(function (name) {
+                var path = paths[name];
+                if (step <= path.length) { at[name] = path[step - 1]; hopping[name] = true; }
+            });
+            drawTokens(state, at, hopping);
+            Sound.play("step");
+            if (step < longest) moveTimer = setTimeout(frame, 150);
+            else moveTimer = null;
+        })();
+    }
+
+    // Draw every token, at ``at[name]`` instead of its real square when given.
+    function drawTokens(state, at, hopping) {
         Object.keys(nodes).forEach(function (bid) {
             nodes[bid].tokens.forEach(function (node) { node.replaceChildren(); });
         });
         var multi = boardIds(state).length > 1;
         state.players.forEach(function (p) {
             if (p.left || p.bankrupt) return;
-            var parts = nodes[p.position.board_id];
-            var holder = parts && parts.tokens[p.position.index];
+            var pos = at[p.name] || p.position;
+            var parts = nodes[pos.board_id];
+            var holder = parts && parts.tokens[pos.index];
             if (!holder) return;
+            var key = posKey(pos);
             var token = el("span", "token", p.name.charAt(0).toUpperCase());
+            if (hopping[p.name]) token.classList.add("is-stepping");
+            else if (shownAt[p.name] && shownAt[p.name] !== key && !reduceMotion()) token.classList.add("is-arriving");
+            shownAt[p.name] = key;
             token.style.background = p.colour;
             token.title = p.name + (multi ? " on " + boardOf(state, p.position.board_id).name : "") +
                 (p.in_jail ? " (in jail)" : "");
@@ -803,17 +975,154 @@
         );
     }
 
+    var shownRollId;       // id of the roll on show (undefined before the first state)
+    var diceTimer = null;
+
     function renderDice(state) {
         var box = $("dice");
-        box.replaceChildren();
         var roll = state.last_roll;
+        var fresh = roll && shownRollId !== undefined && roll.id !== shownRollId;
+        shownRollId = roll ? roll.id : null;
+        if (diceTimer && !fresh) return;  // still tumbling: it shows the result when done
+        if (diceTimer) { clearInterval(diceTimer); diceTimer = null; }
+        box.classList.remove("is-rolling");
+        box.replaceChildren();
         if (!roll) {
             box.appendChild(el("span", "roll-caption", "No dice rolled yet"));
             return;
         }
-        roll.dice.forEach(function (d) { box.appendChild(el("span", "die", DIE_FACES[d])); });
+        var dice = roll.dice.map(function (d) { return box.appendChild(el("span", "die", DIE_FACES[d])); });
         box.appendChild(el("span", "roll-caption",
             roll.player + ": " + roll.total + (roll.doubles ? " (doubles!)" : "")));
+        if (!fresh) return;
+        Sound.play("dice");
+        if (reduceMotion()) return;
+        box.classList.add("is-rolling");
+        var ticks = 0;
+        diceTimer = setInterval(function () {
+            ticks += 1;
+            if (ticks < 7) {
+                dice.forEach(function (die) { die.textContent = DIE_FACES[1 + Math.floor(Math.random() * 6)]; });
+                return;
+            }
+            clearInterval(diceTimer);
+            diceTimer = null;
+            box.classList.remove("is-rolling");
+            dice.forEach(function (die, i) { die.textContent = DIE_FACES[roll.dice[i]]; });
+        }, 70);
+    }
+
+    function reduceMotion() {
+        return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    }
+
+    // ---- Board view: "Fit" shows every board; a board's button zooms in so
+    // that board fills the frame (and is readable on a phone).
+    var viewBoard = null;  // board id zoomed into, or null to fit
+    var MIN_READABLE_WIDTH = 720;  // px a zoomed board is drawn at, at least
+
+    function buildBoardView(state) {
+        var bar = $("board-view");
+        if (!bar) return;
+        bar.replaceChildren();
+        var ids = boardIds(state);
+        function add(label, bid, title) {
+            var b = el("button", "btn btn-small", label);
+            b.type = "button";
+            b.dataset.bid = bid === null ? "" : bid;
+            b.title = title;
+            b.addEventListener("click", function () { setBoardView(bid); });
+            bar.appendChild(b);
+        }
+        add("Fit", null, "Show the whole board");
+        ids.forEach(function (bid) {
+            if (ids.length > 1) add(boardOf(state, bid).name, bid, "Zoom into " + boardOf(state, bid).name);
+            else add("\u{1F50D} Zoom", bid, "Zoom into the board");
+        });
+        if (viewBoard !== null && ids.indexOf(viewBoard) < 0) viewBoard = null;
+        applyBoardView(false);
+    }
+
+    function setBoardView(bid) {
+        viewBoard = bid;
+        applyBoardView(true);
+    }
+
+    function applyBoardView(scroll) {
+        var wrap = $("board-wrap"), board = $("board");
+        if (!wrap) return;
+        $("board-view").querySelectorAll("button").forEach(function (b) {
+            b.classList.toggle("is-active", b.dataset.bid === (viewBoard === null ? "" : String(viewBoard)));
+        });
+        var keepLeft = wrap.scrollLeft, keepTop = wrap.scrollTop;
+        wrap.classList.remove("is-zoomed");
+        board.style.removeProperty("--zoom");
+        var target = viewBoard !== null && nodes[viewBoard] && nodes[viewBoard].board;
+        if (!target) return;
+        var fit = board.getBoundingClientRect().width / target.getBoundingClientRect().width;
+        var zoom = Math.max(fit, MIN_READABLE_WIDTH / Math.max(1, wrap.clientWidth));
+        if (zoom < 1.05) return;  // already big enough
+        wrap.classList.add("is-zoomed");
+        board.style.setProperty("--zoom", zoom.toFixed(3));
+        if (!scroll) {
+            wrap.scrollLeft = keepLeft;
+            wrap.scrollTop = keepTop;
+            return;
+        }
+        var r = target.getBoundingClientRect(), w = wrap.getBoundingClientRect();
+        wrap.scrollLeft += r.left - w.left;
+        wrap.scrollTop += r.top - w.top;
+    }
+
+    // ---- Square details: tap (or click) a square.
+    var selectedSquare = null;  // {board_id, index}
+
+    function initSquareInfo() {
+        $("board").addEventListener("click", function (ev) {
+            var node = ev.target.closest(".square");
+            if (!node) return;
+            var pos = { board_id: Number(node.dataset.bid), index: Number(node.dataset.index) };
+            selectedSquare = selectedSquare && posKey(selectedSquare) === posKey(pos) ? null : pos;
+            renderSquareInfo(latestState);
+        });
+        $("square-info-close").addEventListener("click", function () {
+            selectedSquare = null;
+            renderSquareInfo(latestState);
+        });
+        document.addEventListener("keydown", function (ev) {
+            if (ev.key === "Escape" && selectedSquare) { selectedSquare = null; renderSquareInfo(latestState); }
+        });
+    }
+
+    function renderSquareInfo(state) {
+        var box = $("square-info");
+        if (!box) return;
+        document.querySelectorAll(".square.is-selected").forEach(function (n) { n.classList.remove("is-selected"); });
+        if (!selectedSquare || !state || !state.boards[String(selectedSquare.board_id)]) {
+            box.hidden = true;
+            return;
+        }
+        var sq = squareAt(state, selectedSquare);
+        var node = nodes[selectedSquare.board_id] && nodes[selectedSquare.board_id].squares[selectedSquare.index];
+        if (node) node.classList.add("is-selected");
+        var lines = squareTitle(sq, state).split("\n");
+        var body = $("square-info-body");
+        body.replaceChildren();
+        if (groupColour(sq)) {
+            var band = el("div", "band-preview");
+            band.style.background = groupColour(sq);
+            body.appendChild(band);
+        }
+        body.appendChild(el("h3", null, lines.shift()));
+        var here = state.players.filter(function (p) {
+            return !p.left && !p.bankrupt && posKey(p.position) === posKey(selectedSquare);
+        }).map(function (p) { return p.name; });
+        if (boardIds(state).length > 1) lines.unshift("On " + boardOf(state, selectedSquare.board_id).name);
+        if (here.length) lines.push("Here now: " + here.join(", "));
+        var ul = el("ul");
+        lines.forEach(function (line) { ul.appendChild(el("li", null, line)); });
+        body.appendChild(ul);
+        box.hidden = false;
     }
 
     function myPlayer(state) {
@@ -834,6 +1143,8 @@
             indicator.textContent = state.winner ? state.winner + " wins!" : "Game over";
         } else if (self && self.bankrupt) {
             indicator.textContent = "You are bankrupt. You can keep watching.";
+        } else if (decision && decision.type === "auction") {
+            indicator.textContent = decision.square + " is up for auction!";
         } else if (myTurn && decision && decision.type === "debt") {
             indicator.textContent = "You owe money! Raise it or declare bankruptcy.";
         } else if (myTurn && decision) {
@@ -869,6 +1180,71 @@
         renderBuy(state, self, myTurn && decision && (decision.type === "buy" || decision.type === "buy_stake"));
         renderDebt(state, self, myTurn && decision && decision.type === "debt");
         renderTravel(state, self, myTurn && decision && decision.type === "travel");
+        renderAuction(state, self, decision && decision.type === "auction" ? decision : null);
+    }
+
+    // ---- Auctions: everyone sees the panel; players still in it can bid.
+    var auctionState = null;  // {endsAt, offset} for the countdown
+    var auctionTick = null;
+    var auctionKey = null;    // square + high bid last shown, to refill the bid box
+
+    function renderAuction(state, self, d) {
+        var box = $("auction");
+        box.hidden = !d;
+        if (!d) {
+            auctionState = null;
+            auctionKey = null;
+            return;
+        }
+        $("auction-text").textContent = "\u{1F528} Auction: " + d.square +
+            (d.price ? " (list price " + formatMoney(d.price) + ")" : "");
+        auctionState = { endsAt: d.ends_at, offset: Date.now() / 1000 - state.server_time, d: d };
+        updateAuctionStatus();
+        if (!auctionTick) auctionTick = setInterval(updateAuctionStatus, 500);
+
+        var stillIn = d.bidders.filter(function (n) { return d.passed.indexOf(n) < 0; });
+        $("auction-bidders").textContent = "Still bidding: " + stillIn.join(", ") +
+            (d.passed.length ? " \u00b7 Dropped out: " + d.passed.join(", ") : "");
+
+        var bidding = !!self && stillIn.some(function (n) { return isMe(n); });
+        var top = !!self && d.high_bidder !== null && isMe(d.high_bidder);
+        var lowest = Math.max(d.min_bid, d.high_bid + 1);
+        $("auction-form").hidden = !bidding;
+        if (!bidding) return;
+        var input = $("auction-amount");
+        input.min = lowest;
+        input.max = self.money;
+        var key = d.square + ":" + d.high_bid;
+        if (key !== auctionKey) {
+            auctionKey = key;
+            input.value = Math.min(self.money, Math.max(lowest, d.high_bid + 10));
+        }
+        $("bid-btn").disabled = self.money < lowest;
+        $("pass-auction-btn").disabled = top;
+        $("pass-auction-btn").title = top ? "You have the top bid" : "";
+
+        var quick = $("auction-quick");
+        quick.replaceChildren();
+        [1, 10, 50, 100].forEach(function (step) {
+            var amount = d.high_bid ? d.high_bid + step : Math.max(d.min_bid, step);
+            if (amount > self.money || (!d.high_bid && step !== 1 && amount === d.min_bid)) return;
+            var b = el("button", "btn btn-small", d.high_bid ? "+" + formatMoney(step) : formatMoney(amount));
+            b.type = "button";
+            b.title = "Bid " + formatMoney(amount);
+            b.addEventListener("click", function () { socket.emit("bid", { amount: amount }); });
+            quick.appendChild(b);
+        });
+    }
+
+    function updateAuctionStatus() {
+        if (!auctionState) return;
+        var d = auctionState.d;
+        var left = Math.max(0, Math.ceil(auctionState.endsAt - (Date.now() / 1000 - auctionState.offset)));
+        var status = d.high_bidder
+            ? "Top bid " + formatMoney(d.high_bid) + " by " + (isMe(d.high_bidder) ? "you" : d.high_bidder)
+            : "No bids yet \u00b7 opening bid " + formatMoney(d.min_bid);
+        $("auction-status").textContent = status + " \u00b7 closes in " + left + "s";
+        $("auction-status").classList.toggle("is-urgent", left <= 5);
     }
 
     // Train tickets from a station to stations on the other boards.
@@ -1182,6 +1558,11 @@
             socket.emit("decide", { choice: choice });
         }
         $("buy-btn").addEventListener("click", function () { decide("buy", ["buy-btn", "decline-btn"]); });
+        $("auction-form").addEventListener("submit", function (ev) {
+            ev.preventDefault();
+            socket.emit("bid", { amount: parseInt($("auction-amount").value, 10) });
+        });
+        $("pass-auction-btn").addEventListener("click", function () { socket.emit("pass_auction"); });
         $("decline-btn").addEventListener("click", function () { decide("decline", ["buy-btn", "decline-btn"]); });
         $("pay-debt-btn").addEventListener("click", function () { decide("pay", ["pay-debt-btn"]); });
         $("bankrupt-btn").addEventListener("click", function () {
@@ -1191,6 +1572,11 @@
         $("pay-fine-btn").addEventListener("click", function () { socket.emit("pay_jail_fine"); });
         $("use-card-btn").addEventListener("click", function () { socket.emit("use_jail_card"); });
         initTrades();
+        initSquareInfo();
+        initSoundButton();
+        var baseTitle = document.title;
+        var prevState = null;
+        window.addEventListener("resize", function () { applyBoardView(false); });
 
         (spectator ? initWatch : initSeat)(function (state) {
             // Players wait in the lobby; spectators watch the board fill up.
@@ -1205,7 +1591,11 @@
             if (boardBuiltFor !== signature) {
                 buildBoards(state);
                 boardBuiltFor = signature;
+                shownAt = {};
+                buildBoardView(state);
             }
+            playSounds(prevState, state);
+            prevState = state;
             renderRuleset(state);
             renderWatchers(state);
             renderTurnTimer(state);
@@ -1217,7 +1607,11 @@
             renderMyProperties(state);
             renderTrades(state);
             renderPlayers(state);
+            flashMoney(state);
+            renderSquareInfo(state);
             renderLog(state);
+            document.title = (isMe(state.current_player) && state.status === "in_progress" ? "\u25CF Your turn \u00b7 " : "") +
+                baseTitle;
             $("end-btn").hidden = !isMe(state.host) || state.status !== "in_progress";
             if (spectator) $("leave-btn").hidden = false;
             renderGameOver(state);

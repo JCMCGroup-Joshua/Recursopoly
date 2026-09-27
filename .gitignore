@@ -4,3 +4,5 @@ __pycache__/
 venv/
 # Runtime score log, created automatically by the server
 recursopoly/scores.csv
+# Saved games, written automatically by the server
+recursopoly/saves/

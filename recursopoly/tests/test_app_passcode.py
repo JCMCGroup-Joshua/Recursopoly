@@ -8,6 +8,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import app as web  # noqa: E402
 
+web.CONFIG.update({"save_games": False})  # tests never write save files
+
 
 class LockedRuleSetTests(unittest.TestCase):
     def setUp(self):

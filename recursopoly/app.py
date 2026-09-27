@@ -35,6 +35,7 @@ from rulesets import (
     validate_values,
 )
 import stats
+from saves import delete_save, load_games, save_game
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("recursopoly")
@@ -359,10 +360,25 @@ def game_state_api(code):
 # ---------------------------------------------------------------------------
 
 
+def persist(game):
+    """Keep the game's save file up to date: written while the game is
+    running, deleted once it has ended or been forgotten."""
+    if not CONFIG.save_games:
+        return
+    try:
+        if game.status == GameStatus.ENDED or games.get(game.join_code) is not game:
+            delete_save(CONFIG.path("saves_dir"), game.join_code)
+        else:
+            save_game(CONFIG.path("saves_dir"), game, chats.get(game.join_code))
+    except (OSError, ValueError, TypeError) as err:
+        log.warning("Recursopoly game %s could not be saved: %s", game.join_code, err)
+
+
 def broadcast_state(game):
-    """Send the full game state to everyone in the game's room, and flush any
-    queued score-log events."""
+    """Send the full game state to everyone in the game's room, flush any
+    queued score-log events and update the game's save file."""
     score_logger.log_events(game.join_code, game.drain_events())
+    persist(game)
     state = game.to_dict()
     state["spectators"] = sorted(name for code, name in spectator_sids.values() if code == game.join_code)
     # Turn timer: the client shows a countdown to turn_deadline, corrected
@@ -427,12 +443,16 @@ def note_activity(game, name):
 
 
 def turn_timer_loop():
-    """Background task: end turns that have been idle too long."""
+    """Background task: close quiet auctions and end turns that have been
+    idle too long."""
     while True:
         socketio.sleep(1)
         with state_lock:
             for game in list(games.values()):
-                if game.end_idle_turn(game.turn_timer):
+                if game.end_idle_auction():
+                    log.info("Recursopoly game %s: auction closed", game.join_code)
+                    broadcast_state(game)
+                elif game.end_idle_turn(game.turn_timer):
                     log.info("Recursopoly game %s: turn timed out", game.join_code)
                     broadcast_state(game)
 
@@ -443,6 +463,7 @@ def cleanup_if_abandoned(game):
         if game.status == GameStatus.ENDED or not game.players:
             games.pop(game.join_code, None)
             chats.pop(game.join_code, None)
+            persist(game)  # deletes its save
             for key in [k for k in seat_sids if k[0] == game.join_code]:
                 del seat_sids[key]
             log.info("Recursopoly game %s removed", game.join_code)
@@ -632,6 +653,17 @@ def on_cancel_trade(data):
     player_action(lambda g, n: g.cancel_trade(n, _int(data, "trade_id")))
 
 
+@socketio.on("bid")
+def on_bid(data):
+    """{"amount": n}: any player still in the running auction may bid."""
+    player_action(lambda g, n: g.bid(n, _int(data, "amount")))
+
+
+@socketio.on("pass_auction")
+def on_pass_auction(_data=None):
+    player_action(lambda g, n: g.pass_auction(n))
+
+
 def _turn_timer_value(raw):
     try:
         value = int(raw)
@@ -780,6 +812,7 @@ def on_chat(data):
         history.append(message)
         del history[:-CHAT_HISTORY]
         socketio.emit("chat_message", message, to=game.join_code)
+        persist(game)
 
 
 @socketio.on("disconnect")
@@ -805,6 +838,24 @@ def on_disconnect(*_args):
         broadcast_state(game)
         schedule_disconnect_check(code, player.name, CONFIG.disconnect_grace_seconds)
         cleanup_if_abandoned(game)
+
+
+def restore_saved_games():
+    """Load the games saved before the last shutdown. Their players are
+    marked disconnected until their pages rejoin."""
+    if not CONFIG.save_games:
+        return
+    with state_lock:
+        for code, (game, chat) in load_games(CONFIG.path("saves_dir"), CONFIG.saves_keep_days).items():
+            if code in games:
+                continue
+            games[code] = game
+            chats[code] = chat
+            log.info("Recursopoly game %s restored (%s, %s, %d players)", code, game.ruleset.name,
+                     game.status, len(game.players))
+
+
+restore_saved_games()
 
 
 def start_background_tasks():

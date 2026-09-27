@@ -15,6 +15,8 @@ The game currently includes:
   the adult-themed **AMST** rule set
 - **Phase 5:** nested boards and train travel (the **Recursopoly** rule set)
 - **Phase 6:** leaderboard, game history, spectators, chat and a turn timer
+- **Phase 7:** auctions, saved games that survive a restart, and visual
+  polish (animations, sounds, zoomable boards)
 
 Everything runs on Flask and Flask-SocketIO. There is **no database**:
 rule sets and boards are JSON files, server settings and card decks are
@@ -192,6 +194,55 @@ plain `.txt` files, and scores are appended to a `.csv` file.
   passes on. An unpaid debt carries over to their next turn. A countdown
   shows on the game page. `0` (the default) turns it off.
 
+## Features (Phase 7)
+
+- **Auctions (optional).** Turn on `auctions.enabled` in a rule set (or
+  tick **Auction properties nobody buys** in the lobby or on the Settings
+  page). When a player declines a property, or lands on one they can't
+  afford, it goes up for auction to every player, the lander included.
+  - Everyone sees the auction panel. Players still bidding type a bid or
+    use the quick buttons, or **Drop out**. The top bidder can't drop out.
+  - A bid must beat the top bid (and be at least `auctions.min_bid`) and
+    can't be more than the bidder's money.
+  - The auction closes when everyone else has dropped out, or when nobody
+    has bid for `auctions.seconds`. The top bidder pays their bid and
+    gets the property; with no bids it stays with the bank.
+  - Players in debt, without enough money for the opening bid, or who
+    still need to lap the board (`must_lap_before_buying`) can't bid.
+  - Stakes in pooled squares are never auctioned. The turn timer and the
+    disconnect skip wait for an auction to finish.
+- **Saved games.** Every unfinished game (lobby or in progress) is saved
+  to `saves/<JOIN CODE>.json` whenever it changes, and loaded again when
+  the server starts. After a restart, open pages reconnect and rejoin by
+  themselves; anyone else rejoins with the join code and the same name.
+  - A save holds the whole game (money, positions, owners, buildings,
+    card deck order, open trades, a running auction, the log and the chat)
+    and a copy of its rule set. A game keeps its own rules even if the
+    rule set file changes or is deleted.
+  - Players are marked disconnected until they come back, so the usual
+    `disconnect_grace_seconds` turn skip applies. A running auction gets
+    a fresh timer.
+  - Finished games are deleted (`scores.csv` keeps their history), and so
+    are saves untouched for `saves_keep_days`. A save that can't be read
+    is renamed to `.broken` and skipped.
+  - Set `save_games=false` in `config.txt` to keep games in memory only.
+- **Board view.** Buttons above the board switch between **Fit** (every
+  board at once) and zooming into one board, which then fills a
+  scrollable frame. On a phone this makes any board readable; with nested
+  boards it brings an inner board up to full size. Square text and tokens
+  scale with their board.
+- **Square details.** Tap or click any square for its price, rents,
+  building costs, owner, buildings, pot and who is standing on it.
+- **Animations.** The dice tumble when rolled, tokens hop square by square
+  when they move forward (and pop in after a jump, train ride or trip to
+  jail), and every player's money flashes green or red with the amount
+  when it changes. The browser tab title shows when it's your turn.
+  Animations are skipped when the device asks for reduced motion.
+- **Sounds.** Short tones (made in the browser, no sound files) for dice,
+  moves, your turn, money in and out, jail, auctions and the end of the
+  game. The speaker button in the header mutes them, and the choice is
+  remembered in that browser.
+
 ## Changing settings from the web page
 
 - **For one game (anyone hosting):** in the lobby, the host clicks
@@ -259,6 +310,9 @@ settings: everything about how the game plays comes from rule sets.
 | `disconnect_grace_seconds` | 5 | How long a player can be disconnected (for example, while a page reloads) before their turn is skipped |
 | `turn_timer_seconds` | 0 | Default seconds the active player may sit idle before their turn is ended for them (0 = no timer). The host can change it for a game in the lobby |
 | `admin_password` | (empty) | Password for saving rule sets and settings from the web page. Empty turns saving from the web off |
+| `save_games` | true | Save unfinished games so they survive a restart |
+| `saves_dir` | saves | Folder for saved games |
+| `saves_keep_days` | 14 | Delete saved games untouched for this many days at startup (0 = keep forever) |
 | `host` / `port` | 0.0.0.0 / 5000 | Where the server listens |
 | `debug` | false | Flask debug mode |
 | `scores_file` | scores.csv | Where scores are logged |
@@ -313,6 +367,9 @@ Here is AMST:
 | `pooled_squares` | `payout_trigger` | `on_landing` | `on_landing`: anyone landing pays the pot out. `on_stakeholder_landing`: only a stakeholder landing does |
 | `pooled_squares` | `sell_back_percent` | 50 | Percentage of a stake's buy-in the bank pays when a stake is sold back |
 | `travel` | `ticket_prices` | `[]` | Train fare to reach a station on each board, in board order. Needed (one per board) when a rule set has several boards |
+| `auctions` | `enabled` | false | Auction properties that the lander declines or can't afford |
+| `auctions` | `min_bid` | 10 | Lowest opening bid (at least 1) |
+| `auctions` | `seconds` | 20 | An auction closes this long after the last bid (at least 5) |
 | `travel` | `choose_destination` | true | `true`: landing on a station offers tickets to any station on another board. `false`: automatic tickets, one board inward (and from the innermost board back to the outer board) |
 | `pooled_squares` | `payout_split` | `by_stake` | `by_stake`: in proportion to stakes (unsold stakes' share stays in the pot). `equal`: split evenly between stakeholders |
 
@@ -527,6 +584,7 @@ recursopoly/
     stats.py            Leaderboard and game history from scores.csv (no Flask)
     config.py           Loads config.txt
     logger.py           Appends rows to scores.csv
+    saves.py            Saves unfinished games to saves/ and loads them at startup
     config.txt          Server settings
     rulesets/           classic.json, amst.json, recursopoly.json, recursopoly_amst.json
     boards/             classic_board.json, amst_board.json,
@@ -536,7 +594,7 @@ recursopoly/
     templates/          index.html, lobby.html, game.html, leaderboard.html,
                         history.html, settings.html, _nav.html
     static/             recursopoly.css, recursopoly.js
-    tests/              Unit tests for the engine, rule sets and stats
+    tests/              Unit tests for the engine, rule sets, stats and saves
 ```
 
 The engine has no web dependencies, so it can be tested on its own:
@@ -579,3 +637,12 @@ Phase 6 adds:
   Socket.IO room without a seat, and chat is one more room broadcast.
 - `Game.touch()` and `Game.end_idle_turn()` implement the turn timer; a
   background task in `app.py` checks every game once a second.
+
+Phase 7 adds:
+
+- Auctions are an `auction` pending decision that any bidder answers with
+  `Game.bid()` / `Game.pass_auction()`; `Game.end_idle_auction()` closes a
+  quiet one from the same background task.
+- `Game.snapshot()` / `Game.restore()` turn a game into JSON-safe data and
+  back; `saves.py` does the file work. New game state must be added to
+  `Game._SNAPSHOT_FIELDS` (or `Player`, which is saved field by field).

@@ -15,6 +15,7 @@ grouped into sections:
       "house_rules": {"must_lap_before_buying": true, ...},
       "pooled_squares": {"receives": ["taxes", "fines"], "payout_trigger": ...},
       "travel":      {"ticket_prices": [50, 150, 300], "choose_destination": true},
+      "auctions":    {"enabled": true, "min_bid": 10, "seconds": 20},
       "passcode": "..."                         # optional: needed to host a game
     }
 
@@ -39,12 +40,14 @@ from dataclasses import dataclass, field
 from game_engine import parse_board_data, parse_cards_text
 
 BASE_RULESET = "classic"
-SECTIONS = ("players", "economy", "building", "house_rules", "pooled_squares", "travel")
+SECTIONS = ("players", "economy", "building", "house_rules", "pooled_squares", "travel", "auctions")
 TOP_LEVEL_KEYS = {"name", "description", "board", "boards", "cards", "passcode", *SECTIONS}
 MAX_PASSCODE_LENGTH = 100
 # Keys in these sections get a prefix when flattened, so the engine reads
 # e.g. pooled_squares.receives as "pool_receives".
-KEY_PREFIX = {"pooled_squares": "pool_"}
+KEY_PREFIX = {"pooled_squares": "pool_", "auctions": "auction_"}
+# Shortest auction timer: an auction must always be able to end on its own.
+MIN_AUCTION_SECONDS = 5
 
 # Every value the game engine reads. classic.json must define them all.
 REQUIRED_VALUES = (
@@ -55,6 +58,7 @@ REQUIRED_VALUES = (
     "doubles_before_jail", "max_jail_turns", "must_lap_before_buying",
     "pool_receives", "pool_payout_trigger", "pool_payout_split", "pool_sell_back_percent",
     "ticket_prices", "choose_destination",
+    "auction_enabled", "auction_min_bid", "auction_seconds",
 )
 
 # Every editable value, for the web forms (lobby rule editor and settings
@@ -90,6 +94,12 @@ FIELDS = (
     {"key": "ticket_prices", "section": "travel", "label": "Train fares by board (\u00a3)", "type": "intlist"},
     {"key": "choose_destination", "section": "travel", "label": "Players choose their train destination",
      "type": "bool"},
+    {"key": "auction_enabled", "section": "auctions", "name": "enabled",
+     "label": "Auction properties nobody buys", "type": "bool"},
+    {"key": "auction_min_bid", "section": "auctions", "name": "min_bid",
+     "label": "Lowest opening bid (\u00a3)", "type": "int", "min": 1},
+    {"key": "auction_seconds", "section": "auctions", "name": "seconds",
+     "label": "Seconds without a bid before an auction closes", "type": "int", "min": MIN_AUCTION_SECONDS},
 )
 FIELD_BY_KEY = {f["key"]: f for f in FIELDS}
 RULESET_ID = re.compile(r"^[a-z0-9_-]{1,40}$")
@@ -213,7 +223,7 @@ def validate_values(flat, board_count, where="rule set", required=REQUIRED_VALUE
     if missing:
         raise ValueError(f"{where}: missing values {', '.join(_label(k) for k in missing)}")
     for key in required:
-        if key in ("must_lap_before_buying", "choose_destination"):
+        if key in ("must_lap_before_buying", "choose_destination", "auction_enabled"):
             if not isinstance(flat[key], bool):
                 raise ValueError(f"{where}: {key} must be true or false")
         elif key == "pool_receives":
@@ -241,6 +251,9 @@ def validate_values(flat, board_count, where="rule set", required=REQUIRED_VALUE
         raise ValueError(f"{where}: houses_before_hotel can't exceed max_houses_per_property")
     if flat["doubles_before_jail"] < 1 or flat["max_jail_turns"] < 1:
         raise ValueError(f"{where}: doubles_before_jail and max_jail_turns must be at least 1")
+    if flat["auction_min_bid"] < 1 or flat["auction_seconds"] < MIN_AUCTION_SECONDS:
+        raise ValueError(f"{where}: auctions.min_bid must be at least 1 and auctions.seconds at "
+                         f"least {MIN_AUCTION_SECONDS}")
     if board_count > 1 and len(flat["ticket_prices"]) < board_count:
         raise ValueError(f"{where}: travel.ticket_prices needs a price for each of the "
                          f"{board_count} boards (the fare to reach a station on that board)")
