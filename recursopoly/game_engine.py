@@ -2113,7 +2113,8 @@ class Game:
                 result = "finished"
             self._event("game_ended", p, details=(
                 f"net_worth={self.net_worth(p)}; position={position}; result={result}; "
-                f"ruleset={self.ruleset.id}"))
+                f"properties={len(self.owned_squares(p.name))}; stakes={len(self.stakes_of(p.name))}; "
+                f"journeys={p.attributes.get('journeys', 0)}; ruleset={self.ruleset.id}"))
 
     def standings(self):
         """Finishing order: players still in the game by net worth, then
