@@ -317,8 +317,14 @@ socketio.on_event("pay_jail_fine", lambda _data=None: player_action(lambda g, n:
 socketio.on_event("use_jail_card", lambda _data=None: player_action(lambda g, n: g.use_jail_card(n)))
 
 # Buildings and mortgages: {"board_id": 0, "index": 39}
-for _event in ("build_house", "build_hotel", "sell_house", "mortgage", "unmortgage", "sell_stake"):
+for _event in ("build_house", "build_hotel", "sell_house", "mortgage", "unmortgage"):
     socketio.on_event(_event, _square_action(_event))
+
+
+@socketio.on("sell_stake")
+def on_sell_stake(data):
+    """{"board_id", "index", "stake": stake number}"""
+    player_action(lambda g, n: g.sell_stake(n, _int(data, "board_id"), _int(data, "index"), _int(data, "stake")))
 
 
 @socketio.on("propose_trade")

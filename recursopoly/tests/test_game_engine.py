@@ -820,7 +820,8 @@ class AmstTests(unittest.TestCase):
         self.alice.position = Position(0, 12)
         self.game.roll("Alice", dice=(1, 2))
         self.game.decide("Alice", "buy")
-        self.assertEqual(self.club.stake_of("Alice")["percent"], 50)
+        self.assertEqual(self.game.held_percent(self.club, "Alice"), 50)
+        self.assertEqual([st["stake"] for st in self.club.stakes_held("Alice")], [1, 2])
         self.to_turn("Bob")
         self.bob.position = Position(0, 12)
         self.game.roll("Bob", dice=(1, 2))
@@ -834,7 +835,10 @@ class AmstTests(unittest.TestCase):
         self.assertEqual(self.club.pot, 100)  # the unsold 25% stays in the pot
         self.assertEqual(self.game.pending_decision, None)  # Carol has no lap yet
         state = self.game.to_dict()
-        self.assertEqual(state["players"][0]["stakes"], [{"board_id": 0, "index": 15, "percent": 50}])
+        self.assertEqual(state["players"][0]["stakes"], [
+            {"board_id": 0, "index": 15, "stake": 1, "percent": 25},
+            {"board_id": 0, "index": 15, "stake": 2, "percent": 25},
+        ])
         self.assertEqual(self.game.net_worth(self.alice), 1900 + 2 * 150)
 
     def test_equal_split_and_stakeholder_trigger(self):
@@ -864,7 +868,7 @@ class AmstTests(unittest.TestCase):
         self.alice.debts.append({"creditor": "Bob", "amount": 5000, "reason": "test", "category": None})
         self.game._open_debt_decision(self.alice)
         self.game.decide("Alice", "bankrupt")
-        self.assertEqual(self.club.stake_of("Bob")["percent"], 50)
+        self.assertEqual(self.game.held_percent(self.club, "Bob"), 50)
         self.game.remove_player("Carol")
         self.assertIsNone(self.club.stake_of("Carol"))
         self.assertEqual(self.game.winner, "Bob")
@@ -872,36 +876,43 @@ class AmstTests(unittest.TestCase):
     def test_sell_stake_back_to_the_bank(self):
         self.game._add_shares(self.club, "Alice", 2)
         actions = [a for a in self.game.property_actions(self.alice) if a.get("stake")]
-        self.assertEqual(len(actions), 1)
+        self.assertEqual([a["stake"] for a in actions], [1, 2])  # each stake listed separately
         self.assertTrue(actions[0]["can_sell_stake"])
         self.assertEqual(actions[0]["stake_sell_value"], 75)  # 50% of the £150 buy-in
-        self.game.sell_stake("Alice", 0, 15)
+        self.game.sell_stake("Alice", 0, 15, 2)
         self.assertEqual(self.alice.money, 2075)
-        self.assertEqual(self.club.stake_of("Alice")["percent"], 25)
-        self.game.sell_stake("Alice", 0, 15)
-        self.assertIsNone(self.club.stake_of("Alice"))  # the stakes are back on sale
+        self.assertEqual([st["stake"] for st in self.club.stakes_held("Alice")], [1])
         with self.assertRaises(GameError):
-            self.game.sell_stake("Alice", 0, 15)
-        self.game._add_shares(self.club, "Bob", 1)
-        with self.assertRaises(GameError):
-            self.game.sell_stake("Bob", 0, 15)  # not Bob's turn
-
-    def test_trade_stakes(self):
-        self.game._add_shares(self.club, "Alice", 2)
-        self.game._add_shares(self.club, "Bob", 1)
-        with self.assertRaises(GameError):
-            self.game.propose_trade("Carol", "Bob", give_squares=[[0, 15]])  # Carol has none
-        trade = self.game.propose_trade("Alice", "Carol", give_squares=[[0, 15]], get_money=250)
-        self.assertEqual(trade["summary"], "Alice gives The Strip Club (50% stake) for Carol's £250")
-        self.game.respond_trade("Carol", trade["id"], True)
+            self.game.sell_stake("Alice", 0, 15, 2)  # already sold
+        self.game.sell_stake("Alice", 0, 15, 1)
         self.assertIsNone(self.club.stake_of("Alice"))
-        self.assertEqual(self.club.stake_of("Carol")["percent"], 50)
-        self.assertEqual((self.alice.money, self.carol.money), (2250, 1750))
-        # Stakes merge when the taker already holds some.
-        trade = self.game.propose_trade("Bob", "Carol", give_squares=[[0, 15]])
+        self.assertEqual(self.game._free_stakes(self.club), [1, 2, 3, 4])  # back on sale
+        self.game._add_shares(self.club, "Bob", 1)
+        with self.assertRaises(GameError):
+            self.game.sell_stake("Bob", 0, 15, 1)  # not Bob's turn
+
+    def test_trade_stakes_one_at_a_time(self):
+        self.game._add_shares(self.club, "Alice", 4)  # Alice holds all four stakes
+        stake_actions = [a for a in self.game.property_actions(self.alice) if a.get("stake")]
+        self.assertEqual(len(stake_actions), 4)
+        self.assertTrue(all(a["tradeable"] for a in stake_actions))
+        with self.assertRaises(GameError):
+            self.game.propose_trade("Alice", "Carol", give_squares=[[0, 15]])  # which stake?
+        with self.assertRaises(GameError):
+            self.game.propose_trade("Carol", "Bob", give_squares=[[0, 15, 1]])  # not Carol's
+        with self.assertRaises(GameError):
+            self.game.propose_trade("Alice", "Carol", give_squares=[[0, 15, 2], [0, 15, 2]])
+        trade = self.game.propose_trade("Alice", "Carol", give_squares=[[0, 15, 3]], get_money=250)
+        self.assertEqual(trade["summary"], "Alice gives The Strip Club stake 3 (25%) for Carol's £250")
         self.game.respond_trade("Carol", trade["id"], True)
-        self.assertEqual(self.club.stake_of("Carol")["percent"], 75)
-        self.assertTrue([a for a in self.game.property_actions(self.carol) if a.get("stake")][0]["tradeable"])
+        self.assertEqual([st["stake"] for st in self.club.stakes_held("Alice")], [1, 2, 4])
+        self.assertEqual([st["stake"] for st in self.club.stakes_held("Carol")], [3])
+        self.assertEqual((self.alice.money, self.carol.money), (2250, 1750))
+        # Two stakes in one trade, to Bob.
+        trade = self.game.propose_trade("Alice", "Bob", give_squares=[[0, 15, 1], [0, 15, 4]])
+        self.game.respond_trade("Bob", trade["id"], True)
+        self.assertEqual(self.game.held_percent(self.club, "Bob"), 50)
+        self.assertEqual(self.game.held_percent(self.club, "Alice"), 25)
 
     def test_summary_and_state(self):
         state = self.game.to_dict()

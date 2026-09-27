@@ -16,7 +16,9 @@ Key design points:
   Phase 5 train travel can move tokens between boards.
 * A :class:`Square` has a ``type`` plus a free-form ``attributes`` dict.
   Ownership is a list of stakes ``[{"player", "percent"}]``: a normal
-  property is one stake of 100%, a pooled square has several.
+  property is one stake of 100%. A pooled square has numbered stakes
+  ``[{"player", "stake": 1, "percent": 25}, ...]``, each one a separate
+  asset that can be sold or traded on its own.
 * Turns are a small state machine (:class:`TurnState`). ``AWAITING_DECISION``
   pauses the turn until the active player answers ``Game.pending_decision``.
 * Payments go through ``Game._pay``. A player who can't pay runs up a debt
@@ -171,11 +173,15 @@ class Square:
             self.attributes.pop("stakes", None)
 
     def stake_of(self, name):
-        """The stake entry held by ``name``, or None."""
+        """The (first) stake entry held by ``name``, or None."""
         for stake in self.stakes:
             if _same(stake["player"], name):
                 return stake
         return None
+
+    def stakes_held(self, name):
+        """Every stake entry held by ``name`` (pooled squares can have several)."""
+        return [stake for stake in self.stakes if _same(stake["player"], name)]
 
     @property
     def pooled(self):
@@ -1169,19 +1175,22 @@ class Game:
         self._offer_stake(player, square)
 
     def _pay_out_pool(self, square, lander):
-        """Share the pot among the square's stakeholders (still in the game),
-        by stake or equally, as the rule set says. Unsold stakes' share stays
-        in the pot."""
+        """Share the pot among the square's stakeholders (still in the game):
+        by stake (each stake earns an equal cut, so unsold stakes' cuts stay
+        in the pot) or equally per stakeholder, as the rule set says."""
         pot = square.pot
-        holders = [(self.get_player(s["player"]), s) for s in square.stakes]
-        holders = [(p, s) for p, s in holders if p is not None and p.in_game]
-        if not pot or not holders:
+        counts = {}  # player name -> number of stakes held
+        for stake in square.stakes:
+            holder = self.get_player(stake["player"])
+            if holder is not None and holder.in_game:
+                counts[holder.name] = counts.get(holder.name, 0) + 1
+        if not pot or not counts:
             return
         if self._rule("pool_payout_split") == "equal":
-            payouts = [(p, pot // len(holders)) for p, _ in holders]
+            payouts = [(self.get_player(n), pot // len(counts)) for n in counts]
         else:  # by_stake
             max_stakes = square.attributes["max_stakes"]
-            payouts = [(p, pot * s.get("shares", 0) // max_stakes) for p, s in holders]
+            payouts = [(self.get_player(n), pot * c // max_stakes) for n, c in counts.items()]
         paid = 0
         parts = []
         for holder, amount in payouts:
@@ -1198,15 +1207,46 @@ class Game:
             self._say(f"{lander.name} landed on {square.name}: the pot pays out "
                       f"{', '.join(parts)}{left}.")
 
+    @staticmethod
+    def _stake_percent(shares, max_stakes):
+        percent = shares * 100 / max_stakes
+        return int(percent) if percent == int(percent) else round(percent, 2)
+
+    def held_percent(self, square, name):
+        """Total percentage of a pooled square held by ``name``."""
+        return self._stake_percent(len(square.stakes_held(name)), square.attributes["max_stakes"])
+
+    def _free_stakes(self, square):
+        """Numbers of the stakes still owned by the bank."""
+        taken = {stake["stake"] for stake in square.stakes}
+        return [n for n in range(1, square.attributes["max_stakes"] + 1) if n not in taken]
+
+    def _add_stake(self, square, name, number=None):
+        """Give ``name`` stake ``number`` (default: the lowest unsold one)."""
+        free = self._free_stakes(square)
+        if not free:
+            raise GameError("sold_out", f"Every stake in {square.name} is taken.")
+        number = number if number in free else free[0]
+        entry = {"player": name, "stake": number,
+                 "percent": self._stake_percent(1, square.attributes["max_stakes"])}
+        stakes = square.attributes.setdefault("stakes", [])
+        stakes.append(entry)
+        stakes.sort(key=lambda st: st["stake"])
+        return entry
+
+    def _add_shares(self, square, name, shares):
+        """Give ``name`` several of the unsold stakes."""
+        for _ in range(shares):
+            self._add_stake(square, name)
+
     def _offer_stake(self, player, square):
-        max_stakes = square.attributes["max_stakes"]
-        sold = sum(s.get("shares", 0) for s in square.stakes)
-        if sold >= max_stakes:
+        free = self._free_stakes(square)
+        if not free:
             return
         buy_in = square.attributes["buy_in"]
         if not self._may_buy(player, square, buy_in):
             return
-        percent = self._stake_percent(1, max_stakes)
+        percent = self._stake_percent(1, square.attributes["max_stakes"])
         self.pending_decision = {
             "type": "buy_stake",
             "player": player.name,
@@ -1214,90 +1254,67 @@ class Game:
             "index": player.position.index,
             "square": square.name,
             "price": buy_in,
+            "stake": free[0],
             "percent": percent,
-            "stakes_left": max_stakes - sold,
+            "stakes_left": len(free),
         }
         self.turn_state = TurnState.AWAITING_DECISION
-        self._say(f"{player.name} can buy a {percent}% stake in {square.name} for {money(buy_in)}.")
-
-    @staticmethod
-    def _stake_percent(shares, max_stakes):
-        percent = shares * 100 / max_stakes
-        return int(percent) if percent == int(percent) else round(percent, 2)
+        self._say(f"{player.name} can buy stake {free[0]} ({percent}%) in {square.name} "
+                  f"for {money(buy_in)}.")
 
     def _buy_stake(self, player, square):
         buy_in = square.attributes["buy_in"]
         if player.money < buy_in:
             raise GameError("cant_afford", f"You can't afford a stake in {square.name}.")
         player.money -= buy_in
-        self._add_shares(square, player.name, 1)
-        stake = square.stake_of(player.name)
-        self._say(f"{player.name} bought a stake in {square.name} for {money(buy_in)} "
-                  f"and now holds {stake['percent']}%.")
+        entry = self._add_stake(square, player.name)
+        held = self.held_percent(square, player.name)
+        self._say(f"{player.name} bought stake {entry['stake']} in {square.name} for "
+                  f"{money(buy_in)} and now holds {held}%.")
         self._event("stake_purchased", player,
-                    details=f"square={square.name}; price={buy_in}; percent={stake['percent']}")
+                    details=f"square={square.name}; stake={entry['stake']}; price={buy_in}; held={held}")
 
     def stake_sell_value(self, square):
         """Refund for selling one stake back to the bank."""
         return square.attributes.get("buy_in", 0) * self._rule("pool_sell_back_percent") // 100
 
-    def _remove_shares(self, square, name, shares):
-        stake = square.stake_of(name)
-        stake["shares"] -= shares
-        if stake["shares"] <= 0:
-            square.attributes["stakes"].remove(stake)
-        else:
-            stake["percent"] = self._stake_percent(stake["shares"], square.attributes["max_stakes"])
+    def _stake_entry(self, owner_name, square, number):
+        """The stake ``number`` in ``square`` held by ``owner_name``."""
+        for stake in square.stakes_held(owner_name):
+            if number is None or stake["stake"] == number:
+                return stake
+        if number is None:
+            raise GameError("not_owner", f"{owner_name} doesn't hold a stake in {square.name}.")
+        raise GameError("not_owner", f"{owner_name} doesn't hold stake {number} in {square.name}.")
 
-    def _move_stake(self, square, from_name, to_name):
-        """Hand all of ``from_name``'s shares in a pooled square to ``to_name``."""
-        shares = square.stake_of(from_name)["shares"]
-        self._remove_shares(square, from_name, shares)
-        self._add_shares(square, to_name, shares)
-
-    def _stake_square(self, player, board_id, index):
-        board = self.boards.get(board_id)
-        if board is None or not 0 <= index < board.size:
-            raise GameError("bad_square", "No such square.")
-        square = board.square(index)
-        if not square.pooled or not square.stake_of(player.name):
-            raise GameError("not_owner", f"You don't hold a stake in {square.name}.")
-        return square
-
-    def sell_stake(self, name, board_id, index):
-        """Sell one of your stakes in a pooled square back to the bank, which
-        makes it available for someone else to buy."""
+    def sell_stake(self, name, board_id, index, stake=None):
+        """Sell one stake in a pooled square back to the bank, which makes it
+        available for someone else to buy. ``stake`` is the stake number
+        (default: the player's lowest-numbered one)."""
         player = self._require_player(name)
         problem = self._manage_problem(player)
         if problem:
             raise GameError("not_allowed", problem)
-        square = self._stake_square(player, board_id, index)
+        board = self.boards.get(board_id)
+        if board is None or not 0 <= index < board.size or not board.square(index).pooled:
+            raise GameError("bad_square", "That isn't a square with stakes.")
+        square = board.square(index)
+        entry = self._stake_entry(player.name, square, stake)
+        square.attributes["stakes"].remove(entry)
         refund = self.stake_sell_value(square)
-        self._remove_shares(square, player.name, 1)
         player.money += refund
-        stake = square.stake_of(player.name)
-        left = f"{stake['percent']}%" if stake else "none"
-        self._say(f"{player.name} sold a stake in {square.name} back to the bank for "
-                  f"{money(refund)} (now holds {left}).")
+        held = self.held_percent(square, player.name)
+        self._say(f"{player.name} sold stake {entry['stake']} in {square.name} back to the bank for "
+                  f"{money(refund)} (now holds {held}%).")
         self._event("stake_sold", player,
-                    details=f"square={square.name}; refund={refund}; percent_left={stake['percent'] if stake else 0}")
-
-    def _add_shares(self, square, name, shares):
-        stakes = square.attributes.setdefault("stakes", [])
-        stake = square.stake_of(name)
-        if stake is None:
-            stake = {"player": name, "shares": 0, "percent": 0}
-            stakes.append(stake)
-        stake["shares"] += shares
-        stake["percent"] = self._stake_percent(stake["shares"], square.attributes["max_stakes"])
+                    details=f"square={square.name}; stake={entry['stake']}; refund={refund}; held={held}")
 
     def stakes_of(self, name):
-        """[(board_id, square, stake)] for every pooled square ``name`` has a stake in."""
+        """[(board_id, square, stake entry)] for every stake ``name`` holds."""
         found = []
         for bid, board in self.boards.items():
             for sq in board.pools():
-                stake = sq.stake_of(name)
-                if stake:
+                for stake in sq.stakes_held(name):
                     found.append((bid, sq, stake))
         return found
 
@@ -1482,7 +1499,7 @@ class Game:
             sq.attributes.pop("hotels", None)
             sq.set_owner(creditor.name)
         for bid, sq, stake in self.stakes_of(player.name):
-            self._move_stake(sq, player.name, creditor.name)
+            stake["player"] = creditor.name
         creditor.money += max(player.money, 0)
         creditor.jail_cards.extend(player.jail_cards)
         player.jail_cards = []
@@ -1593,7 +1610,7 @@ class Game:
             worth += price - self.mortgage_value(sq) if sq.mortgaged else price
             worth += sq.houses * sq.attributes.get("house_cost", 0) + sq.hotels * self.hotel_cost(sq)
         for _, sq, stake in self.stakes_of(player.name):
-            worth += stake["shares"] * sq.attributes.get("buy_in", 0)
+            worth += sq.attributes.get("buy_in", 0)
         return worth
 
     # -- buildings and mortgages ---------------------------------------------
@@ -1796,22 +1813,23 @@ class Game:
             actions.append({
                 "board_id": bid,
                 "index": sq.index,
-                "stake": True,
+                "stake": stake["stake"],
                 "percent": stake["percent"],
-                "shares": stake["shares"],
                 "can_sell_stake": not manage,
                 "stake_sell_value": self.stake_sell_value(sq),
-                "tradeable": not self._trade_square_problem(player, self.boards[bid], sq),
+                "tradeable": not self._trade_square_problem(player, self.boards[bid], sq, stake["stake"]),
             })
         return actions
 
     # -- trading -----------------------------------------------------------
 
-    def _trade_square_problem(self, owner, board, square):
+    def _trade_square_problem(self, owner, board, square, stake=None):
         if square.pooled:
-            # Trading a pooled square hands over all of the owner's shares in it.
-            if not square.stake_of(owner.name):
-                return f"{owner.name} doesn't hold a stake in {square.name}."
+            # Stakes are traded one by one, by stake number.
+            if stake is None:
+                return f"Choose which stake in {square.name} to trade."
+            if not any(st["stake"] == stake for st in square.stakes_held(owner.name)):
+                return f"{owner.name} doesn't hold stake {stake} in {square.name}."
             return None
         if square.type not in OWNABLE_TYPES or not _same(square.owner, owner.name):
             return f"{owner.name} doesn't own {square.name}."
@@ -1822,21 +1840,21 @@ class Game:
         return None
 
     def _trade_squares(self, owner, positions):
-        squares = []
+        """Resolve trade positions ([board_id, index] for a property, or
+        [board_id, index, stake] for a stake) into (square, stake) pairs."""
+        items = []
         for pos in positions:
-            try:
-                board_id, index = int(pos[0]), int(pos[1])
-            except (TypeError, ValueError, IndexError):
-                raise GameError("bad_trade", "Invalid square in trade.") from None
+            board_id, index = pos[0], pos[1]
+            stake = pos[2] if len(pos) > 2 else None
             board = self.boards.get(board_id)
             if board is None or not 0 <= index < board.size:
                 raise GameError("bad_trade", "Invalid square in trade.")
             square = board.square(index)
-            problem = self._trade_square_problem(owner, board, square)
+            problem = self._trade_square_problem(owner, board, square, stake)
             if problem:
                 raise GameError("bad_trade", problem)
-            squares.append(square)
-        return squares
+            items.append((square, stake if square.pooled else None))
+        return items
 
     def _validate_trade(self, trade):
         """Check a trade can happen right now. Returns (giver, taker,
@@ -1854,13 +1872,15 @@ class Game:
         return giver, taker, give, get
 
     def describe_trade(self, trade):
-        def label(owner, b, i):
-            sq = self.square_at(Position(b, i))
-            stake = sq.stake_of(owner) if sq.pooled else None
-            return f"{sq.name} ({stake['percent']}% stake)" if stake else sq.name
+        def label(pos):
+            sq = self.square_at(Position(pos[0], pos[1]))
+            if sq.pooled and len(pos) > 2:
+                pct = self._stake_percent(1, sq.attributes["max_stakes"])
+                return f"{sq.name} stake {pos[2]} ({pct}%)"
+            return sq.name
 
         def side(amount, positions, owner):
-            items = [label(owner, b, i) for b, i in positions]
+            items = [label(pos) for pos in positions]
             if amount:
                 items.append(money(amount))
             return " + ".join(items)
@@ -1887,10 +1907,15 @@ class Game:
         if give_money < 0 or get_money < 0:
             raise GameError("bad_trade", "Money amounts can't be negative.")
         try:
-            give_list = [[int(p[0]), int(p[1])] for p in give_squares or ()]
-            get_list = [[int(p[0]), int(p[1])] for p in get_squares or ()]
-        except (TypeError, ValueError, IndexError):
+            give_list = [[int(v) for v in p[:3]] for p in give_squares or ()]
+            get_list = [[int(v) for v in p[:3]] for p in get_squares or ()]
+        except (TypeError, ValueError):
             raise GameError("bad_trade", "Invalid square in trade.") from None
+        for pos in give_list + get_list:
+            if len(pos) < 2:
+                raise GameError("bad_trade", "Invalid square in trade.")
+        if len({tuple(p) for p in give_list + get_list}) != len(give_list + get_list):
+            raise GameError("bad_trade", "The same item is in the trade twice.")
         trade = {
             "id": self._next_trade_id,
             "from": giver.name,
@@ -1929,18 +1954,18 @@ class Game:
             return
         giver, taker, give, get = self._validate_trade(trade)
         self.trades.remove(trade)
-        for sq in give:
-            self._transfer_square(sq, giver.name, taker.name)
-        for sq in get:
-            self._transfer_square(sq, taker.name, giver.name)
+        for sq, stake in give:
+            self._transfer_square(sq, stake, giver.name, taker.name)
+        for sq, stake in get:
+            self._transfer_square(sq, stake, taker.name, giver.name)
         giver.money += trade["get_money"] - trade["give_money"]
         taker.money += trade["give_money"] - trade["get_money"]
         self._say(f"{taker.name} accepted the trade: {trade['summary']}.")
         self._event("trade_accepted", taker, details=trade["summary"])
 
-    def _transfer_square(self, square, from_name, to_name):
+    def _transfer_square(self, square, stake, from_name, to_name):
         if square.pooled:
-            self._move_stake(square, from_name, to_name)
+            self._stake_entry(from_name, square, stake)["player"] = to_name
         else:
             square.set_owner(to_name)
 
@@ -2046,7 +2071,7 @@ class Game:
                 {"board_id": bid, "index": sq.index} for bid, sq in self.owned_squares(p.name)
             ]
             data["stakes"] = [
-                {"board_id": bid, "index": sq.index, "percent": stake["percent"]}
+                {"board_id": bid, "index": sq.index, "stake": stake["stake"], "percent": stake["percent"]}
                 for bid, sq, stake in self.stakes_of(p.name)
             ]
             data["property_actions"] = self.property_actions(p)

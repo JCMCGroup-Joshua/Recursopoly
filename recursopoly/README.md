@@ -102,7 +102,8 @@ plain `.txt` files, and scores are appended to a `.csv` file.
   `boards/`, with its own names, prices, rents, colour groups, icons and
   custom square types. It can also bring its own card decks.
 - **Stakeholder ownership.** Ownership is a list of stakes (player +
-  percentage). A normal property is one owner with 100%.
+  percentage). A normal property is one owner with 100%; a pooled square
+  has numbered stakes, each a separate asset.
 - **Pooled squares.** A square marked `"stakeholder": true` sells stakes
   (for example 4 stakes of 25%) to players who land on it.
   - Money paid to the bank can go into its pot, as the rule set says:
@@ -116,8 +117,9 @@ plain `.txt` files, and scores are appended to a `.csv` file.
   until they have been round the board once. `doubles_before_jail` sets how
   many doubles in a row send you to jail.
 - **AMST.** An adult-themed rule set with its own board ("AMST Board"):
-  - The Velvet Lounge and Neon Alley (the red group), Central Station,
-    and bars, cabaret, tattoo studios, casinos and cellars
+  - The Velvet Lounge and Neon Alley (the red group, with house and hotel
+    rents), Central Station, and bars, cabaret, tattoo studios, casinos
+    and cellars
   - its own "Last Call" and "Lucky Dip" card decks
   - £2000 starting money, £250 Go salary and a £75 jail fine
   - up to 3 hotels per property, and a full lap before buying
@@ -268,15 +270,19 @@ pooled:
 ```
 
 - `max_stakes` is how many equal stakes exist (4 means 25% each).
+- A pot paid out "by stake" gives each stake an equal cut, so a player with
+  2 of 4 stakes gets half; cuts for unsold stakes stay in the pot.
 - `buy_in` is the price of one stake.
-- A player who lands on the square may buy one stake per visit, while
-  stakes remain. The same lap and debt rules as buying property apply.
-- Stakes show under **Your properties**. On your turn you can sell a stake
-  back to the bank for `sell_back_percent` of the buy-in (50% in Classic
-  and AMST). The stake is then back on sale.
-- Stakes can be traded like properties: trading a pooled square hands over
-  all of your shares in it (they merge with any the other player holds).
-  Stakes can't be mortgaged.
+- Each stake is numbered (stake 1 to `max_stakes`) and is a separate
+  asset: holding all 4 means 4 stakes to sell or trade individually.
+- A player who lands on the square may buy one stake per visit (the
+  lowest-numbered one left), while stakes remain. The same lap and debt
+  rules as buying property apply.
+- Each stake shows under **Your properties**. On your turn you can sell
+  any one of them back to the bank for `sell_back_percent` of the buy-in
+  (50% in Classic and AMST). That stake is then back on sale.
+- Stakes can be traded like properties, one or several at a time; each
+  appears as its own item in the trade dialog. Stakes can't be mortgaged.
 - On bankruptcy stakes pass to the creditor; when a player leaves, their
   stakes return to the bank.
 - The pot is filled and paid out as the rule set's `pooled_squares`

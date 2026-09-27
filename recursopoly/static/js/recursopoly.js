@@ -563,7 +563,7 @@
         if (!show) return;
         var d = state.pending_decision;
         $("decision-text").textContent = d.type === "buy_stake"
-            ? "Buy a " + d.percent + "% stake in " + d.square + " for " + formatMoney(d.price) + "? (" +
+            ? "Buy stake " + d.stake + " (" + d.percent + "%) in " + d.square + " for " + formatMoney(d.price) + "? (" +
               plural(d.stakes_left, "stake") + " left)"
             : "Buy " + d.square + " for " + formatMoney(d.price) + "?";
         $("buy-btn").disabled = !self || self.money < d.price;
@@ -606,7 +606,7 @@
                 var ul = el("ul", "props");
                 stakes.forEach(function (st) {
                     var chip = el("li", "prop-chip prop-stake",
-                        board.squares[st.index].name + " " + st.percent + "%");
+                        board.squares[st.index].name + " stake " + st.stake + " (" + st.percent + "%)");
                     chip.style.setProperty("--chip", STAKE_COLOUR);
                     chip.title = squareTitle(board.squares[st.index], state);
                     ul.appendChild(chip);
@@ -642,9 +642,9 @@
             var sq = state.boards[String(act.board_id)].squares[act.index];
             var li = el("li", "my-prop");
             li.style.setProperty("--chip", act.stake ? STAKE_COLOUR : (groupColour(sq) || "#777"));
-            var label = el("div", "my-prop-name", sq.name);
+            var label = el("div", "my-prop-name", sq.name + (act.stake ? " \u2014 stake " + act.stake : ""));
             var status = act.stake
-                ? act.percent + "% stake \u00b7 pot " + formatMoney(sq.attributes.pot || 0)
+                ? act.percent + "% \u00b7 pot " + formatMoney(sq.attributes.pot || 0)
                 : buildingText(sq) || (sq.attributes.mortgaged ? "Mortgaged" : "");
             if (status) label.appendChild(el("span", "my-prop-status", status));
             li.appendChild(label);
@@ -656,12 +656,13 @@
                 b.disabled = !enabled;
                 b.addEventListener("click", function () {
                     b.disabled = true;
-                    socket.emit(event, { board_id: act.board_id, index: act.index });
+                    socket.emit(event, { board_id: act.board_id, index: act.index, stake: act.stake });
                 });
                 buttons.appendChild(b);
             }
             if (act.stake) {
-                add("Sell a stake +" + formatMoney(act.stake_sell_value), "sell_stake", act.can_sell_stake);
+                add("Sell stake " + act.stake + " +" + formatMoney(act.stake_sell_value), "sell_stake",
+                    act.can_sell_stake);
                 li.appendChild(buttons);
                 list.appendChild(li);
                 return;
@@ -730,9 +731,9 @@
             var label = el("label", "trade-option");
             var box = el("input");
             box.type = "checkbox";
-            box.value = act.board_id + ":" + act.index;
+            box.value = act.board_id + ":" + act.index + (act.stake ? ":" + act.stake : "");
             label.appendChild(box);
-            var text = sq.name + (act.stake ? " (" + act.percent + "% stake)" :
+            var text = sq.name + (act.stake ? " stake " + act.stake + " (" + act.percent + "%)" :
                 sq.attributes.mortgaged ? " (mortgaged)" : "");
             var chip = el("span", "prop-chip", text);
             chip.style.setProperty("--chip", act.stake ? STAKE_COLOUR : (groupColour(sq) || "#777"));
