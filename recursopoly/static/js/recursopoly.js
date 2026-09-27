@@ -298,14 +298,33 @@
     };
 
     var OWNABLE = { property: true, station: true, utility: true };
-    var currentGroups = {};    // colour groups of the board being shown
+    var groupsByBoard = {};    // colour groups of each board, by board id
 
     var boardBuiltFor = null;  // board signature, so we only rebuild on change
-    var squareNodes = [];      // token holder per square index
-    var squareEls = [];        // whole square element per square index
-    var buildingNodes = [];    // houses / hotel holder per square index
-    var potNodes = [];         // pot display per pooled square index
+    // Per board id: {squares, tokens, buildings, pots}, each indexed by square.
+    var nodes = {};
     var latestState = null;    // most recent game_state, for dialogs
+
+    function boardIds(state) {
+        return Object.keys(state.boards).map(Number).sort(function (a, b) { return a - b; });
+    }
+
+    function boardOf(state, id) { return state.boards[String(id)]; }
+
+    function squareAt(state, pos) { return boardOf(state, pos.board_id).squares[pos.index]; }
+
+    // Tag every square with its board id so helpers can find its colour group.
+    function tagSquares(state) {
+        boardIds(state).forEach(function (bid) {
+            var board = boardOf(state, bid);
+            groupsByBoard[bid] = board.groups || {};
+            board.squares.forEach(function (sq) { sq.boardId = bid; });
+        });
+    }
+
+    function byBoardThenIndex(a, b) {
+        return (a.board_id - b.board_id) || (a.index - b.index);
+    }
 
     // Colour for a property's group: from the board file, else the CSS palette.
     var STAKE_COLOUR = "#7b1fa2";  // chip colour for stakes in pooled squares
@@ -313,7 +332,7 @@
     function groupColour(sq) {
         var group = sq.attributes && sq.attributes.group;
         if (!group) return null;
-        var info = currentGroups[group];
+        var info = (groupsByBoard[sq.boardId || 0] || {})[group];
         return (info && info.colour) || "var(--group-" + group + ", #999)";
     }
 
@@ -359,16 +378,12 @@
         return parts.join("\n");
     }
 
-    function buildBoard(board) {
-        var container = $("board");
+    // Draw one board into ``container`` and return its (empty) centre.
+    function buildOneBoard(container, board, bid) {
         var n = board.size;
         var s = Math.ceil(n / 4);
-        container.replaceChildren();
         container.style.setProperty("--cells", s + 1);
-        squareNodes = [];
-        squareEls = [];
-        buildingNodes = [];
-        potNodes = [];
+        var parts = nodes[bid] = { squares: [], tokens: [], buildings: [], pots: [] };
 
         board.squares.forEach(function (sq) {
             var cell = squareCell(sq.index, n);
@@ -382,7 +397,7 @@
                 band.style.background = groupColour(sq);
                 var buildings = el("div", "buildings");
                 band.appendChild(buildings);
-                buildingNodes[sq.index] = buildings;
+                parts.buildings[sq.index] = buildings;
                 node.appendChild(band);
             }
             node.appendChild(el("div", "sq-name", sq.name));
@@ -394,35 +409,65 @@
             if (a.stakeholder) {
                 node.classList.add("pooled");
                 var pot = el("div", "sq-pot");
-                potNodes[sq.index] = pot;
+                parts.pots[sq.index] = pot;
                 node.appendChild(pot);
             }
             var tokens = el("div", "tokens");
             node.appendChild(tokens);
             container.appendChild(node);
-            squareNodes[sq.index] = tokens;
-            squareEls[sq.index] = node;
+            parts.tokens[sq.index] = tokens;
+            parts.squares[sq.index] = node;
         });
 
-        // The centre shows the last card drawn; in Phase 4 the next board
-        // inward is drawn here.
         var centre = el("div", "board-centre");
         centre.style.gridRow = "2 / " + (s + 1);
         centre.style.gridColumn = "2 / " + (s + 1);
+        container.appendChild(centre);
+        return centre;
+    }
+
+    // Draw every board, each inner board inside the centre of the one around
+    // it (boards within boards). The innermost centre gets the logo.
+    function buildBoards(state) {
+        var ids = boardIds(state);
+        var container = $("board");
+        container.replaceChildren();
+        nodes = {};
+        var centre = null;
+        ids.forEach(function (bid, depth) {
+            if (depth > 0) {
+                var inner = el("div", "board board-nested");
+                inner.dataset.depth = depth;
+                centre.classList.add("has-nested");
+                centre.appendChild(el("div", "board-label", boardOf(state, bid).name));
+                centre.appendChild(inner);
+                container = inner;
+            }
+            centre = buildOneBoard(container, boardOf(state, bid), bid);
+        });
         centre.appendChild(el("div", "centre-logo", "Recursopoly"));
+
+        // The last card drawn: in the middle of a single board, or in the
+        // sidebar when the middle is taken up by inner boards.
         var card = el("div", "drawn-card");
         card.id = "drawn-card";
         card.hidden = true;
-        centre.appendChild(card);
-        container.appendChild(centre);
+        $("card-slot").replaceChildren();
+        (ids.length > 1 ? $("card-slot") : centre).appendChild(card);
     }
 
     // Owner outlines, buildings and mortgages on each square.
-    function renderOwnership(state, board) {
+    function renderOwnership(state) {
         var colours = {};
         state.players.forEach(function (p) { colours[p.name] = p.colour; });
-        board.squares.forEach(function (sq) {
-            var node = squareEls[sq.index];
+        boardIds(state).forEach(function (bid) { renderBoardOwnership(state, bid, colours); });
+    }
+
+    function renderBoardOwnership(state, bid, colours) {
+        var parts = nodes[bid];
+        if (!parts) return;
+        boardOf(state, bid).squares.forEach(function (sq) {
+            var node = parts.squares[sq.index];
             if (!node) return;
             var a = sq.attributes || {};
             node.classList.toggle("owned", !!a.owner);
@@ -431,7 +476,7 @@
             else node.style.removeProperty("--owner");
             node.title = squareTitle(sq, state);
 
-            var holder = buildingNodes[sq.index];
+            var holder = parts.buildings[sq.index];
             if (holder) {
                 holder.replaceChildren();
                 var i;
@@ -440,7 +485,7 @@
             }
 
             // Pooled squares: the pot, and a dot per stakeholder in their colour.
-            var pot = potNodes[sq.index];
+            var pot = parts.pots[sq.index];
             if (pot) {
                 pot.replaceChildren(el("span", null, "Pot " + formatMoney(a.pot || 0)));
                 (a.stakes || []).forEach(function (st) {
@@ -453,15 +498,20 @@
         });
     }
 
-    function renderTokens(state, boardId) {
-        squareNodes.forEach(function (node) { node.replaceChildren(); });
+    function renderTokens(state) {
+        Object.keys(nodes).forEach(function (bid) {
+            nodes[bid].tokens.forEach(function (node) { node.replaceChildren(); });
+        });
+        var multi = boardIds(state).length > 1;
         state.players.forEach(function (p) {
-            if (p.position.board_id !== boardId || p.left || p.bankrupt) return;
-            var holder = squareNodes[p.position.index];
+            if (p.left || p.bankrupt) return;
+            var parts = nodes[p.position.board_id];
+            var holder = parts && parts.tokens[p.position.index];
             if (!holder) return;
             var token = el("span", "token", p.name.charAt(0).toUpperCase());
             token.style.background = p.colour;
-            token.title = p.name + (p.in_jail ? " (in jail)" : "");
+            token.title = p.name + (multi ? " on " + boardOf(state, p.position.board_id).name : "") +
+                (p.in_jail ? " (in jail)" : "");
             if (state.current_player === p.name) token.classList.add("is-current");
             if (!p.connected) token.classList.add("is-offline");
             if (p.in_jail) token.classList.add("is-jailed");
@@ -530,6 +580,9 @@
         } else if (decision && decision.type === "debt") {
             indicator.textContent = state.current_player + " owes " + formatMoney(decision.amount) +
                 " and must raise money";
+        } else if (decision && decision.type === "travel") {
+            indicator.textContent = state.current_player + " is deciding whether to take the train from " +
+                decision.from;
         } else if (state.current_player) {
             indicator.textContent = state.current_player + "'s turn";
         } else {
@@ -543,6 +596,31 @@
         renderJail(state, self, canRoll && self.in_jail);
         renderBuy(state, self, myTurn && decision && (decision.type === "buy" || decision.type === "buy_stake"));
         renderDebt(state, self, myTurn && decision && decision.type === "debt");
+        renderTravel(state, self, myTurn && decision && decision.type === "travel");
+    }
+
+    // Train tickets from a station to stations on the other boards.
+    function renderTravel(state, self, show) {
+        $("travel").hidden = !show;
+        if (!show) return;
+        var d = state.pending_decision;
+        $("travel-text").textContent = "Take the train from " + d.from + "?";
+        var list = $("travel-options");
+        list.replaceChildren();
+        d.options.forEach(function (opt) {
+            var b = el("button", "btn travel-option");
+            b.type = "button";
+            b.appendChild(el("span", "travel-dest", opt.name));
+            b.appendChild(el("span", "travel-board", opt.board));
+            b.appendChild(el("span", "travel-price", formatMoney(opt.price)));
+            b.disabled = self.money < opt.price;
+            b.addEventListener("click", function () {
+                list.querySelectorAll("button").forEach(function (x) { x.disabled = true; });
+                socket.emit("decide", { choice: "travel:" + opt.board_id + ":" + opt.index });
+            });
+            list.appendChild(b);
+        });
+        $("stay-btn").disabled = false;
     }
 
     // Pay the fine / use a card, shown before a jailed player rolls.
@@ -585,30 +663,32 @@
     function renderPlayers(state) {
         var list = $("game-players");
         list.replaceChildren();
-        var board = state.boards["0"];
+        var multi = boardIds(state).length > 1;
         state.players.forEach(function (p) {
             var li = playerRow(p, state, true);
-            var props = (p.properties || [])
-                .filter(function (pos) { return pos.board_id === 0; })
-                .map(function (pos) { return board.squares[pos.index]; })
-                .sort(function (a, b) { return a.index - b.index; });
+            var props = (p.properties || []).slice().sort(byBoardThenIndex)
+                .map(function (pos) { return squareAt(state, pos); });
             var info = el("div", "player-info");
             if (!p.bankrupt && !p.left) info.appendChild(el("span", null, "Worth " + formatMoney(p.net_worth)));
             if (p.jail_cards) info.appendChild(el("span", null, "\u{1F511} " + p.jail_cards + " jail card" +
                 (p.jail_cards > 1 ? "s" : "")));
             if (p.debt) info.appendChild(el("span", "is-negative", "Owes " + formatMoney(p.debt)));
+            if (multi && !p.bankrupt && !p.left) {
+                info.appendChild(el("span", null, "On " + boardOf(state, p.position.board_id).name));
+            }
             if (state.rules.must_lap_before_buying && !p.laps && !p.bankrupt && !p.left) {
                 info.appendChild(el("span", null, "No lap yet: can't buy"));
             }
             li.appendChild(info);
-            var stakes = (p.stakes || []).filter(function (st) { return st.board_id === 0; });
+            var stakes = (p.stakes || []).slice().sort(byBoardThenIndex);
             if (props.length || stakes.length) {
                 var ul = el("ul", "props");
                 stakes.forEach(function (st) {
+                    var stakeSq = squareAt(state, st);
                     var chip = el("li", "prop-chip prop-stake",
-                        board.squares[st.index].name + " stake " + st.stake + " (" + st.percent + "%)");
+                        stakeSq.name + " stake " + st.stake + " (" + st.percent + "%)");
                     chip.style.setProperty("--chip", STAKE_COLOUR);
-                    chip.title = squareTitle(board.squares[st.index], state);
+                    chip.title = squareTitle(stakeSq, state);
                     ul.appendChild(chip);
                 });
                 props.forEach(function (sq) {
@@ -638,7 +718,7 @@
         var myTurn = isMe(state.current_player);
         $("my-props-hint").textContent = myTurn ? "" : "You can build, sell and mortgage on your turn.";
 
-        actions.slice().sort(function (a, b) { return a.index - b.index; }).forEach(function (act) {
+        actions.slice().sort(byBoardThenIndex).forEach(function (act) {
             var sq = state.boards[String(act.board_id)].squares[act.index];
             var li = el("li", "my-prop");
             li.style.setProperty("--chip", act.stake ? STAKE_COLOUR : (groupColour(sq) || "#777"));
@@ -835,6 +915,7 @@
         $("bankrupt-btn").addEventListener("click", function () {
             if (confirm("Declare bankruptcy? You will be out of the game.")) decide("bankrupt", ["bankrupt-btn"]);
         });
+        $("stay-btn").addEventListener("click", function () { decide("stay", ["stay-btn"]); });
         $("pay-fine-btn").addEventListener("click", function () { socket.emit("pay_jail_fine"); });
         $("use-card-btn").addEventListener("click", function () { socket.emit("use_jail_card"); });
         initTrades();
@@ -843,17 +924,18 @@
             if (state.status === "lobby") { goTo("lobby", state.join_code); return; }
             latestState = state;
 
-            // Phase 3 shows only the outer board (id 0); Phase 4 renders all.
-            var board = state.boards["0"];
-            currentGroups = board.groups || {};
-            var signature = board.size + ":" + board.name;
+            // Every board, nested: the outer board holds the next one in its centre.
+            tagSquares(state);
+            var signature = boardIds(state).map(function (bid) {
+                return boardOf(state, bid).size + ":" + boardOf(state, bid).name;
+            }).join("|");
             if (boardBuiltFor !== signature) {
-                buildBoard(board);
+                buildBoards(state);
                 boardBuiltFor = signature;
             }
             renderRuleset(state);
-            renderOwnership(state, board);
-            renderTokens(state, 0);
+            renderOwnership(state);
+            renderTokens(state);
             renderCard(state);
             renderDice(state);
             renderTurn(state);

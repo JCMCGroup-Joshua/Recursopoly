@@ -15,8 +15,8 @@
     <div id="error" class="banner banner-error" hidden></div>
 
     <main class="game-layout">
-        <!-- The board is drawn by recursopoly.js from the board data in the
-             game state. Phase 4 adds one of these per nested board. -->
+        <!-- The boards are drawn by recursopoly.js from the game state. Inner
+             boards are drawn inside the centre of the board around them. -->
         <section class="board-wrap">
             <div id="board" class="board" aria-label="Recursopoly board"></div>
         </section>
@@ -25,6 +25,7 @@
             <section class="card turn-card">
                 <div id="turn-indicator" class="turn-indicator">Connecting&hellip;</div>
                 <div id="dice" class="dice" aria-live="polite"></div>
+                <div id="card-slot" class="card-slot"></div>
                 <div id="jail-actions" class="panel panel-jail" hidden>
                     <p id="jail-text"></p>
                     <div class="panel-actions">
@@ -38,6 +39,13 @@
                     <div class="panel-actions">
                         <button type="button" class="btn btn-primary" id="buy-btn">Buy</button>
                         <button type="button" class="btn" id="decline-btn">Decline</button>
+                    </div>
+                </div>
+                <div id="travel" class="panel panel-travel" hidden>
+                    <p id="travel-text"></p>
+                    <div id="travel-options" class="travel-options"></div>
+                    <div class="panel-actions">
+                        <button type="button" class="btn" id="stay-btn">Stay here</button>
                     </div>
                 </div>
                 <div id="debt" class="panel panel-debt" hidden>
