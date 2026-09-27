@@ -36,6 +36,6 @@
 
   "travel": {
     "ticket_prices": [75, 200, 400],
-    "choose_destination": true
+    "choose_destination": false
   }
 }
