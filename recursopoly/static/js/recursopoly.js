@@ -308,6 +308,8 @@
     var latestState = null;    // most recent game_state, for dialogs
 
     // Colour for a property's group: from the board file, else the CSS palette.
+    var STAKE_COLOUR = "#7b1fa2";  // chip colour for stakes in pooled squares
+
     function groupColour(sq) {
         var group = sq.attributes && sq.attributes.group;
         if (!group) return null;
@@ -605,7 +607,7 @@
                 stakes.forEach(function (st) {
                     var chip = el("li", "prop-chip prop-stake",
                         board.squares[st.index].name + " " + st.percent + "%");
-                    chip.style.setProperty("--chip", "#7b1fa2");
+                    chip.style.setProperty("--chip", STAKE_COLOUR);
                     chip.title = squareTitle(board.squares[st.index], state);
                     ul.appendChild(chip);
                 });
@@ -639,9 +641,11 @@
         actions.slice().sort(function (a, b) { return a.index - b.index; }).forEach(function (act) {
             var sq = state.boards[String(act.board_id)].squares[act.index];
             var li = el("li", "my-prop");
-            li.style.setProperty("--chip", groupColour(sq) || "#777");
+            li.style.setProperty("--chip", act.stake ? STAKE_COLOUR : (groupColour(sq) || "#777"));
             var label = el("div", "my-prop-name", sq.name);
-            var status = buildingText(sq) || (sq.attributes.mortgaged ? "Mortgaged" : "");
+            var status = act.stake
+                ? act.percent + "% stake \u00b7 pot " + formatMoney(sq.attributes.pot || 0)
+                : buildingText(sq) || (sq.attributes.mortgaged ? "Mortgaged" : "");
             if (status) label.appendChild(el("span", "my-prop-status", status));
             li.appendChild(label);
 
@@ -655,6 +659,12 @@
                     socket.emit(event, { board_id: act.board_id, index: act.index });
                 });
                 buttons.appendChild(b);
+            }
+            if (act.stake) {
+                add("Sell a stake +" + formatMoney(act.stake_sell_value), "sell_stake", act.can_sell_stake);
+                li.appendChild(buttons);
+                list.appendChild(li);
+                return;
             }
             if (sq.type === "property" && sq.attributes.house_cost) {
                 add("House " + formatMoney(act.build_cost), "build_house", act.can_build);
@@ -722,8 +732,10 @@
             box.type = "checkbox";
             box.value = act.board_id + ":" + act.index;
             label.appendChild(box);
-            var chip = el("span", "prop-chip", sq.name + (sq.attributes.mortgaged ? " (mortgaged)" : ""));
-            chip.style.setProperty("--chip", groupColour(sq) || "#777");
+            var text = sq.name + (act.stake ? " (" + act.percent + "% stake)" :
+                sq.attributes.mortgaged ? " (mortgaged)" : "");
+            var chip = el("span", "prop-chip", text);
+            chip.style.setProperty("--chip", act.stake ? STAKE_COLOUR : (groupColour(sq) || "#777"));
             label.appendChild(chip);
             container.appendChild(label);
         });

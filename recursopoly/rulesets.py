@@ -44,7 +44,7 @@ REQUIRED_VALUES = (
     "house_sell_percent", "mortgage_percent", "unmortgage_interest_percent",
     "max_houses_per_property", "houses_before_hotel", "max_hotels_per_property",
     "doubles_before_jail", "max_jail_turns", "must_lap_before_buying",
-    "pool_receives", "pool_payout_trigger", "pool_payout_split",
+    "pool_receives", "pool_payout_trigger", "pool_payout_split", "pool_sell_back_percent",
 )
 
 POOL_CATEGORIES = {"taxes", "fines", "fees"}

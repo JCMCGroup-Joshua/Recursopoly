@@ -32,6 +32,7 @@
   "pooled_squares": {
     "receives": [],
     "payout_trigger": "on_landing",
-    "payout_split": "by_stake"
+    "payout_split": "by_stake",
+    "sell_back_percent": 50
   }
 }

@@ -204,6 +204,7 @@ Here is AMST:
 | `house_rules` | `must_lap_before_buying` | false | Players must pass Go once before buying anything |
 | `pooled_squares` | `receives` | `[]` | Bank payments that go into a pooled square's pot: any of `taxes` (tax squares), `fines` (jail fines), `fees` (card payments and repairs) |
 | `pooled_squares` | `payout_trigger` | `on_landing` | `on_landing`: anyone landing pays the pot out. `on_stakeholder_landing`: only a stakeholder landing does |
+| `pooled_squares` | `sell_back_percent` | 50 | Percentage of a stake's buy-in the bank pays when a stake is sold back |
 | `pooled_squares` | `payout_split` | `by_stake` | `by_stake`: in proportion to stakes (unsold stakes' share stays in the pot). `equal`: split evenly between stakeholders |
 
 Board size is not a rule: it comes from the board file. A rule set may
@@ -270,8 +271,14 @@ pooled:
 - `buy_in` is the price of one stake.
 - A player who lands on the square may buy one stake per visit, while
   stakes remain. The same lap and debt rules as buying property apply.
-- Stakes can't be mortgaged or traded. On bankruptcy they pass to the
-  creditor; when a player leaves, their stakes return to the bank.
+- Stakes show under **Your properties**. On your turn you can sell a stake
+  back to the bank for `sell_back_percent` of the buy-in (50% in Classic
+  and AMST). The stake is then back on sale.
+- Stakes can be traded like properties: trading a pooled square hands over
+  all of your shares in it (they merge with any the other player holds).
+  Stakes can't be mortgaged.
+- On bankruptcy stakes pass to the creditor; when a player leaves, their
+  stakes return to the bank.
 - The pot is filled and paid out as the rule set's `pooled_squares`
   section says.
   If a board has several pooled squares, the first one collects the pot.
@@ -351,7 +358,7 @@ Events:
 
 - **Turns:** `game_started`, `roll`, `passed_go`
 - **Buying and paying:** `purchase`, `rent_paid`, `tax_paid`, `debt_paid`
-- **Pooled squares:** `stake_purchased`, `pool_payout`
+- **Pooled squares:** `stake_purchased`, `stake_sold`, `pool_payout`
 - **Cards and jail:** `card_drawn`, `jailed`, `released_from_jail`,
   `jail_fine_paid`, `jail_card_used`
 - **Buildings and mortgages:** `house_built`, `hotel_built`,

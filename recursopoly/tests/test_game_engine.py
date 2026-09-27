@@ -869,10 +869,39 @@ class AmstTests(unittest.TestCase):
         self.assertIsNone(self.club.stake_of("Carol"))
         self.assertEqual(self.game.winner, "Bob")
 
-    def test_stakes_cannot_be_traded(self):
-        self.game._add_shares(self.club, "Alice", 1)
+    def test_sell_stake_back_to_the_bank(self):
+        self.game._add_shares(self.club, "Alice", 2)
+        actions = [a for a in self.game.property_actions(self.alice) if a.get("stake")]
+        self.assertEqual(len(actions), 1)
+        self.assertTrue(actions[0]["can_sell_stake"])
+        self.assertEqual(actions[0]["stake_sell_value"], 75)  # 50% of the £150 buy-in
+        self.game.sell_stake("Alice", 0, 15)
+        self.assertEqual(self.alice.money, 2075)
+        self.assertEqual(self.club.stake_of("Alice")["percent"], 25)
+        self.game.sell_stake("Alice", 0, 15)
+        self.assertIsNone(self.club.stake_of("Alice"))  # the stakes are back on sale
         with self.assertRaises(GameError):
-            self.game.propose_trade("Alice", "Bob", give_squares=[[0, 15]])
+            self.game.sell_stake("Alice", 0, 15)
+        self.game._add_shares(self.club, "Bob", 1)
+        with self.assertRaises(GameError):
+            self.game.sell_stake("Bob", 0, 15)  # not Bob's turn
+
+    def test_trade_stakes(self):
+        self.game._add_shares(self.club, "Alice", 2)
+        self.game._add_shares(self.club, "Bob", 1)
+        with self.assertRaises(GameError):
+            self.game.propose_trade("Carol", "Bob", give_squares=[[0, 15]])  # Carol has none
+        trade = self.game.propose_trade("Alice", "Carol", give_squares=[[0, 15]], get_money=250)
+        self.assertEqual(trade["summary"], "Alice gives The Strip Club (50% stake) for Carol's £250")
+        self.game.respond_trade("Carol", trade["id"], True)
+        self.assertIsNone(self.club.stake_of("Alice"))
+        self.assertEqual(self.club.stake_of("Carol")["percent"], 50)
+        self.assertEqual((self.alice.money, self.carol.money), (2250, 1750))
+        # Stakes merge when the taker already holds some.
+        trade = self.game.propose_trade("Bob", "Carol", give_squares=[[0, 15]])
+        self.game.respond_trade("Carol", trade["id"], True)
+        self.assertEqual(self.club.stake_of("Carol")["percent"], 75)
+        self.assertTrue([a for a in self.game.property_actions(self.carol) if a.get("stake")][0]["tradeable"])
 
     def test_summary_and_state(self):
         state = self.game.to_dict()
