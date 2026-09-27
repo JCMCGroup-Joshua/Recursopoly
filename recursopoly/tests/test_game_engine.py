@@ -1040,5 +1040,42 @@ class NestedBoardTests(unittest.TestCase):
         self.assertEqual(rows["Train tickets"], "£50 to Classic London, £150 to The Middle Ring, £300 to The Core")
 
 
+class TurnTimerTests(unittest.TestCase):
+    """Phase 6: the optional turn timer ends idle turns."""
+
+    def setUp(self):
+        self.game = make_game(players=("Alice", "Bob"))
+        self.game.start("Alice")
+        self.game.touch(now=1000)
+
+    def test_idle_turn_ends(self):
+        self.assertFalse(self.game.end_idle_turn(60, now=1030))
+        self.assertFalse(self.game.end_idle_turn(0, now=5000))  # timer off
+        self.assertTrue(self.game.end_idle_turn(60, now=1061))
+        self.assertEqual(self.game.current_player.name, "Bob")
+        self.assertIn("turn_timed_out", [e.event_type for e in self.game.drain_events()])
+
+    def test_activity_resets_the_timer(self):
+        self.game.touch(now=1050)
+        self.assertFalse(self.game.end_idle_turn(60, now=1100))
+
+    def test_pending_purchase_is_declined(self):
+        self.game.roll("Alice", dice=(1, 2))  # Whitechapel Road offer
+        self.game.touch(now=1000)
+        self.game.end_idle_turn(60, now=1100)
+        self.assertIsNone(self.game.boards[0].square(3).owner)
+        self.assertIsNone(self.game.pending_decision)
+        self.assertEqual(self.game.current_player.name, "Bob")
+
+    def test_unpaid_debt_carries_over(self):
+        alice = self.game.get_player("Alice")
+        alice.debts.append({"creditor": None, "amount": 5000, "reason": "test", "category": None})
+        self.game._open_debt_decision(alice)
+        self.game.touch(now=1000)
+        self.game.end_idle_turn(60, now=1100)
+        self.assertEqual(alice.debt_total, 5000)
+        self.assertEqual(self.game.current_player.name, "Bob")
+
+
 if __name__ == "__main__":
     unittest.main()

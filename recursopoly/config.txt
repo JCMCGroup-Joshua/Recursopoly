@@ -23,6 +23,12 @@ join_code_length=6
 # reloads) before their turn is skipped.
 disconnect_grace_seconds=5
 
+# --- Turn timer ---------------------------------------------------
+# Seconds the active player may sit idle before their turn is ended
+# for them (a pending purchase is declined, a train ride skipped).
+# 0 turns the timer off.
+turn_timer_seconds=0
+
 # --- Server -------------------------------------------------------
 host=0.0.0.0
 port=5000

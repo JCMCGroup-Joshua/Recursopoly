@@ -174,6 +174,34 @@
         });
     }
 
+    // ---- Turn timer countdown ---------------------------------------------
+
+    var timerState = null;   // {deadline, offset} for the current turn
+    var timerTick = null;
+
+    function renderTurnTimer(state) {
+        var box = $("turn-timer");
+        if (!box) return;
+        if (!state.turn_timer || !state.turn_deadline || state.status !== "in_progress") {
+            timerState = null;
+            box.hidden = true;
+            return;
+        }
+        // offset converts the server's clock to this browser's clock.
+        timerState = { deadline: state.turn_deadline, offset: Date.now() / 1000 - state.server_time };
+        box.hidden = false;
+        updateTurnTimer();
+        if (!timerTick) timerTick = setInterval(updateTurnTimer, 500);
+    }
+
+    function updateTurnTimer() {
+        var box = $("turn-timer");
+        if (!box || !timerState) return;
+        var left = Math.max(0, Math.ceil(timerState.deadline - (Date.now() / 1000 - timerState.offset)));
+        box.textContent = "\u23F1 " + left + "s left";
+        box.classList.toggle("is-urgent", left <= 10);
+    }
+
     // "2 watching", with the spectators' names on hover.
     function renderWatchers(state) {
         var box = $("watchers");
@@ -271,6 +299,10 @@
             list.appendChild(el("dt", null, row.label));
             list.appendChild(el("dd", null, row.value));
         });
+        if (state.turn_timer) {
+            list.appendChild(el("dt", null, "Turn timer"));
+            list.appendChild(el("dd", null, state.turn_timer + " seconds per turn"));
+        }
         if ($("header-ruleset")) $("header-ruleset").textContent = rs.name + " \u00b7";
     }
 
@@ -1016,6 +1048,7 @@
             }
             renderRuleset(state);
             renderWatchers(state);
+            renderTurnTimer(state);
             renderOwnership(state);
             renderTokens(state);
             renderCard(state);

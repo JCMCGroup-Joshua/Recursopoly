@@ -751,3 +751,7 @@ details.ruleset-card > summary::after { content: " \25BE"; color: var(--muted); 
 .chat-form { display: flex; gap: 6px; }
 .chat-form input { flex: 1; min-width: 0; }
 .chat-form .btn { margin-top: 0; }
+
+/* Turn timer countdown. */
+.turn-timer { margin-top: 6px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.turn-timer.is-urgent { color: var(--accent); }

@@ -192,6 +192,12 @@ def broadcast_state(game):
     score_logger.log_events(game.join_code, game.drain_events())
     state = game.to_dict()
     state["spectators"] = sorted(name for code, name in spectator_sids.values() if code == game.join_code)
+    # Turn timer: the client shows a countdown to turn_deadline, corrected
+    # for clock differences using server_time.
+    state["turn_timer"] = CONFIG.turn_timer_seconds
+    state["server_time"] = time.time()
+    state["turn_deadline"] = (game.turn_activity_at + CONFIG.turn_timer_seconds
+                              if CONFIG.turn_timer_seconds and game.turn_activity_at else None)
     socketio.emit("game_state", state, to=game.join_code)
 
 
@@ -239,6 +245,25 @@ def schedule_disconnect_check(code, name, delay):
                 broadcast_state(game)
 
     socketio.start_background_task(worker)
+
+
+def note_activity(game, name):
+    """Reset the turn timer when the active player does something."""
+    current = game.current_player
+    if current is not None and current.name == name:
+        game.touch()
+
+
+def turn_timer_loop():
+    """Background task: end turns that have been idle too long."""
+    limit = CONFIG.turn_timer_seconds
+    while True:
+        socketio.sleep(1)
+        with state_lock:
+            for game in list(games.values()):
+                if game.end_idle_turn(limit):
+                    log.info("Recursopoly game %s: turn timed out", game.join_code)
+                    broadcast_state(game)
 
 
 def cleanup_if_abandoned(game):
@@ -342,6 +367,7 @@ def on_roll_dice(_data=None):
             game.roll(name)  # the server rolls; the client sends no dice values
         except GameError as err:
             return send_error(str(err), err.code)
+        note_activity(game, name)
         broadcast_state(game)
 
 
@@ -357,6 +383,7 @@ def on_decide(data):
             game.decide(name, data.get("choice"))
         except GameError as err:
             return send_error(str(err), err.code)
+        note_activity(game, name)
         broadcast_state(game)
 
 
@@ -371,6 +398,7 @@ def player_action(action):
             action(game, name)
         except GameError as err:
             return send_error(str(err), err.code)
+        note_activity(game, name)
         broadcast_state(game)
 
 
@@ -526,8 +554,15 @@ def on_disconnect(*_args):
         cleanup_if_abandoned(game)
 
 
+def start_background_tasks():
+    if CONFIG.turn_timer_seconds:
+        log.info("Recursopoly turn timer: %s seconds", CONFIG.turn_timer_seconds)
+        socketio.start_background_task(turn_timer_loop)
+
+
 if __name__ == "__main__":
     log.info("Starting Recursopoly on %s:%s", CONFIG.host, CONFIG.port)
+    start_background_tasks()
     socketio.run(
         app,
         host=CONFIG.host,
