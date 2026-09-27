@@ -192,6 +192,30 @@ plain `.txt` files, and scores are appended to a `.csv` file.
   passes on. An unpaid debt carries over to their next turn. A countdown
   shows on the game page. `0` (the default) turns it off.
 
+## Changing settings from the web page
+
+- **For one game (anyone hosting):** in the lobby, the host clicks
+  **Change rules for this game** to edit any rule value (money, building
+  limits, house rules, pooled squares, train fares and travel mode) and the
+  game's turn timer. Every player sees the changes straight away, and the
+  lobby lists what was changed. Nothing is written to disk.
+- **Permanently (admin password):**
+  - In the lobby, **Save these rules as a rule set** writes the game's
+    rules to `rulesets/<id>.json` (with the game's boards and cards), ready
+    to pick for future games.
+  - The **Settings** page (`/settings`) edits any rule set (save changes,
+    or save as a new rule set) and the server settings in `config.txt`.
+- Saving needs `admin_password` from `config.txt`. While it is empty,
+  saving from the web is turned off. The server checks the password; the
+  browser never stores it.
+- Rule set files are written with only the values that differ from
+  Classic, so they keep following Classic for everything else. Saving
+  rewrites the file in that tidy form.
+- `config.txt` is updated in place, so its comments are kept. The server
+  address, port and debug mode need a restart; other settings apply
+  straight away. Boards and card decks are still chosen in the rule set
+  file.
+
 ## Requirements
 
 - Python 3.9 or newer
@@ -220,7 +244,8 @@ settings: everything about how the game plays comes from rule sets.
 | `default_ruleset` | classic | Rule set preselected on the create-game form |
 | `join_code_length` | 6 | Length of generated join codes |
 | `disconnect_grace_seconds` | 5 | How long a player can be disconnected (for example, while a page reloads) before their turn is skipped |
-| `turn_timer_seconds` | 0 | Seconds the active player may sit idle before their turn is ended for them (0 = no timer) |
+| `turn_timer_seconds` | 0 | Default seconds the active player may sit idle before their turn is ended for them (0 = no timer). The host can change it for a game in the lobby |
+| `admin_password` | (empty) | Password for saving rule sets and settings from the web page. Empty turns saving from the web off |
 | `host` / `port` | 0.0.0.0 / 5000 | Where the server listens |
 | `debug` | false | Flask debug mode |
 | `scores_file` | scores.csv | Where scores are logged |
@@ -496,7 +521,7 @@ recursopoly/
                         amst_middle.json, amst_core.json
     cards/              Card decks (classic and AMST)
     templates/          index.html, lobby.html, game.html, leaderboard.html,
-                        history.html, _nav.html
+                        history.html, settings.html, _nav.html
     static/             recursopoly.css, recursopoly.js
     tests/              Unit tests for the engine, rule sets and stats
 ```

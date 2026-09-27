@@ -2,4 +2,5 @@
     <a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>Play</a>
     <a href="{{ url_for('leaderboard_page') }}" {% if request.endpoint == 'leaderboard_page' %}aria-current="page"{% endif %}>Leaderboard</a>
     <a href="{{ url_for('history_page') }}" {% if request.endpoint in ('history_page', 'history_game') %}aria-current="page"{% endif %}>Game history</a>
+    <a href="{{ url_for('settings_page') }}" {% if request.endpoint == 'settings_page' %}aria-current="page"{% endif %}>Settings</a>
 </nav>

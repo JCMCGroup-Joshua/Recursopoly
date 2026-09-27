@@ -16,7 +16,7 @@ from datetime import datetime
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
 from flask_socketio import SocketIO, emit, join_room, leave_room
 
-from config import BASE_DIR, load_config
+from config import BASE_DIR, SERVER_FIELDS, load_config, save_config
 from game_engine import (
     Game,
     GameError,
@@ -25,7 +25,14 @@ from game_engine import (
     normalise_join_code,
 )
 from logger import ScoreLogger
-from rulesets import load_rulesets
+from rulesets import (
+    FIELDS as RULE_FIELDS,
+    coerce_values,
+    load_rulesets,
+    ruleset_file_data,
+    save_ruleset,
+    validate_values,
+)
 import stats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
@@ -67,7 +74,23 @@ state_lock = threading.RLock()
 # checked at startup so a broken file fails fast. Every new game gets its own
 # copy of the board to play on.
 RULESETS = load_rulesets(CONFIG.path("rulesets_dir"), BASE_DIR)
-DEFAULT_RULESET = CONFIG.default_ruleset if CONFIG.default_ruleset in RULESETS else "classic"
+
+
+def default_ruleset_id():
+    return CONFIG.default_ruleset if CONFIG.default_ruleset in RULESETS else "classic"
+
+
+def reload_rulesets():
+    """Re-read every rule set after one is saved from the web. Games already
+    created keep the rule set they started with."""
+    fresh = load_rulesets(CONFIG.path("rulesets_dir"), BASE_DIR)
+    RULESETS.clear()
+    RULESETS.update(fresh)
+
+
+MAX_TURN_TIMER = 3600
+
+
 for _rs in RULESETS.values():
     log.info(
         "Recursopoly rule set '%s' (%s): %d squares, decks: %s",
@@ -87,7 +110,7 @@ def index():
         "index.html",
         error=request.args.get("error"),
         rulesets=list(RULESETS.values()),
-        default_ruleset=DEFAULT_RULESET,
+        default_ruleset=default_ruleset_id(),
     )
 
 
@@ -142,13 +165,88 @@ def history_game(code):
                            error=None)
 
 
+@app.route("/settings")
+def settings_page():
+    """View and change rule sets and server settings. Saving needs the admin
+    password; without one set in config.txt the page is read-only."""
+    rulesets = [{
+        "id": rs.id, "name": rs.name, "description": rs.description,
+        "values": rs.values, "board_count": len(rs.boards),
+        "boards": [b.get("name", path) for b, path in zip(rs.boards, rs.board_paths)],
+    } for rs in RULESETS.values()]
+    server = {f["key"]: CONFIG.get(f["key"]) for f in SERVER_FIELDS}
+    return render_template("settings.html", rule_fields=RULE_FIELDS, rulesets=rulesets,
+                           server_fields=SERVER_FIELDS, server_values=server,
+                           saving_enabled=bool(CONFIG.admin_password))
+
+
+def _json_error(message, status=400):
+    return jsonify({"ok": False, "error": message}), status
+
+
+@app.route("/settings/ruleset", methods=["POST"])
+def save_ruleset_route():
+    """{"password", "id", "name", "description", "source", "values"}: save
+    a rule set (a new id, or overwrite an existing one)."""
+    data = request.get_json(silent=True) or {}
+    if not CONFIG.check_admin_password(data.get("password")):
+        return _json_error("Wrong admin password (or saving is turned off: set admin_password "
+                           "in config.txt).", 403)
+    with state_lock:
+        source = RULESETS.get(data.get("source") or data.get("id"))
+        if source is None:
+            return _json_error("Unknown rule set to copy the boards and cards from.")
+        try:
+            values = {**source.values, **coerce_values(data.get("values"))}
+            rid = _save_ruleset_file(data.get("id"), data.get("name"), data.get("description"),
+                                     source, values)
+        except (ValueError, OSError) as err:
+            return _json_error(str(err))
+    return jsonify({"ok": True, "id": rid, "message": f"Saved rule set '{RULESETS[rid].name}'."})
+
+
+@app.route("/settings/server", methods=["POST"])
+def save_server_settings():
+    """{"password", "values": {...}, "new_password"}: save server settings
+    to config.txt and apply them (host, port and debug need a restart)."""
+    data = request.get_json(silent=True) or {}
+    if not CONFIG.check_admin_password(data.get("password")):
+        return _json_error("Wrong admin password (or saving is turned off: set admin_password "
+                           "in config.txt).", 403)
+    allowed = {f["key"]: f for f in SERVER_FIELDS}
+    changes = dict(data.get("values") or {})
+    unknown = sorted(set(changes) - set(allowed))
+    if unknown:
+        return _json_error(f"These settings can't be changed here: {', '.join(unknown)}")
+    if "default_ruleset" in changes and changes["default_ruleset"] not in RULESETS:
+        return _json_error("Unknown default rule set.")
+    new_password = (data.get("new_password") or "").strip()
+    if new_password:
+        changes["admin_password"] = new_password
+    with state_lock:
+        before = CONFIG.as_dict()
+        try:
+            typed = CONFIG.update(changes)
+            save_config(typed)
+        except (ValueError, OSError) as err:
+            CONFIG.update({k: before[k] for k in changes})
+            return _json_error(str(err))
+    restart = [allowed[k]["label"] for k in typed if k in allowed and allowed[k].get("restart")
+               and before.get(k) != typed[k]]
+    message = "Saved to config.txt."
+    if restart:
+        message += " Restart the server for these to take effect: " + ", ".join(restart) + "."
+    return jsonify({"ok": True, "message": message})
+
+
 @app.route("/lobby/<code>")
 def lobby(code):
     code = normalise_join_code(code)
     with state_lock:
         if code not in games:
             return redirect(url_for("index", error=f"No Recursopoly game with code {code}."))
-    return render_template("lobby.html", join_code=code)
+    return render_template("lobby.html", join_code=code, rule_fields=RULE_FIELDS,
+                           max_turn_timer=MAX_TURN_TIMER, saving_enabled=bool(CONFIG.admin_password))
 
 
 @app.route("/game/<code>")
@@ -194,10 +292,9 @@ def broadcast_state(game):
     state["spectators"] = sorted(name for code, name in spectator_sids.values() if code == game.join_code)
     # Turn timer: the client shows a countdown to turn_deadline, corrected
     # for clock differences using server_time.
-    state["turn_timer"] = CONFIG.turn_timer_seconds
     state["server_time"] = time.time()
-    state["turn_deadline"] = (game.turn_activity_at + CONFIG.turn_timer_seconds
-                              if CONFIG.turn_timer_seconds and game.turn_activity_at else None)
+    state["turn_deadline"] = (game.turn_activity_at + game.turn_timer
+                              if game.turn_timer and game.turn_activity_at else None)
     socketio.emit("game_state", state, to=game.join_code)
 
 
@@ -256,12 +353,11 @@ def note_activity(game, name):
 
 def turn_timer_loop():
     """Background task: end turns that have been idle too long."""
-    limit = CONFIG.turn_timer_seconds
     while True:
         socketio.sleep(1)
         with state_lock:
             for game in list(games.values()):
-                if game.end_idle_turn(limit):
+                if game.end_idle_turn(game.turn_timer):
                     log.info("Recursopoly game %s: turn timed out", game.join_code)
                     broadcast_state(game)
 
@@ -286,12 +382,13 @@ def cleanup_if_abandoned(game):
 def on_create_game(data):
     """{"name": host's display name, "ruleset": rule set id}"""
     data = data or {}
-    ruleset = RULESETS.get(data.get("ruleset") or DEFAULT_RULESET)
+    ruleset = RULESETS.get(data.get("ruleset") or default_ruleset_id())
     if ruleset is None:
         return send_error("Unknown rule set.", "bad_ruleset")
     with state_lock:
         code = generate_join_code(CONFIG.join_code_length, existing=games.keys())
         game = Game(code, ruleset)
+        game.turn_timer = CONFIG.turn_timer_seconds
         try:
             player, _ = game.add_player(data.get("name"))
         except GameError as err:
@@ -456,6 +553,82 @@ def on_cancel_trade(data):
     player_action(lambda g, n: g.cancel_trade(n, _int(data, "trade_id")))
 
 
+def _turn_timer_value(raw):
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError("Turn timer must be a whole number of seconds.") from None
+    if not 0 <= value <= MAX_TURN_TIMER:
+        raise ValueError(f"Turn timer must be between 0 and {MAX_TURN_TIMER} seconds.")
+    return value
+
+
+@socketio.on("update_rules")
+def on_update_rules(data):
+    """The host changes this game's rules in the lobby. Only this game is
+    affected; no files change. {"values": {key: value}, "turn_timer": n}
+    or {"reset": true} to go back to the rule set's values."""
+    data = data or {}
+    with state_lock:
+        game, name = current_session()
+        if game is None:
+            return send_error("You are not in a game.", "no_session")
+        try:
+            if data.get("reset"):
+                values, timer = dict(game.ruleset.values), CONFIG.turn_timer_seconds
+            else:
+                values = {**game.rules, **coerce_values(data.get("values"))}
+                validate_values(values, len(game.boards), "These rules")
+                timer = _turn_timer_value(data.get("turn_timer", game.turn_timer))
+            game.set_rules(name, values, turn_timer=timer)
+        except ValueError as err:
+            return send_error(str(err), "bad_rules")
+        except GameError as err:
+            return send_error(str(err), err.code)
+        broadcast_state(game)
+
+
+def _save_ruleset_file(rid, name, description, source, values):
+    """Write rulesets/<rid>.json (boards and cards from ``source``) and
+    reload the rule sets. Returns the saved id."""
+    rid = (rid or "").strip().lower()
+    name = (name or "").strip() or rid
+    base = None if rid == "classic" else RULESETS["classic"].values
+    validate_values(values, len(source.board_paths), f"Rule set '{rid}'")
+    data = ruleset_file_data(name, (description or "").strip(), source.board_paths,
+                             source.card_paths, values, base)
+    save_ruleset(CONFIG.path("rulesets_dir"), rid, data)
+    try:
+        reload_rulesets()
+    except (OSError, ValueError) as err:
+        raise ValueError(f"Saved, but the rule sets failed to reload: {err}") from None
+    log.info("Recursopoly rule set '%s' saved from the web", rid)
+    return rid
+
+
+@socketio.on("save_ruleset")
+def on_save_ruleset(data):
+    """The host saves this game's current rules as a rule set file, so they
+    can be picked for future games. Needs the admin password.
+    {"id", "name", "description", "password"}"""
+    data = data or {}
+    with state_lock:
+        game, name = current_session()
+        if game is None:
+            return send_error("You are not in a game.", "no_session")
+        if not game.is_host(name):
+            return send_error("Only the host can save the rules.", "not_host")
+        if not CONFIG.check_admin_password(data.get("password")):
+            return send_error("Wrong admin password (or saving from the web is turned off: "
+                              "set admin_password in config.txt).", "bad_password")
+        try:
+            rid = _save_ruleset_file(data.get("id"), data.get("name"), data.get("description"),
+                                     game.ruleset, dict(game.rules))
+        except (ValueError, OSError) as err:
+            return send_error(str(err), "save_failed")
+        emit("ruleset_saved", {"id": rid, "name": RULESETS[rid].name})
+
+
 @socketio.on("end_game")
 def on_end_game(_data=None):
     with state_lock:
@@ -555,9 +728,8 @@ def on_disconnect(*_args):
 
 
 def start_background_tasks():
-    if CONFIG.turn_timer_seconds:
-        log.info("Recursopoly turn timer: %s seconds", CONFIG.turn_timer_seconds)
-        socketio.start_background_task(turn_timer_loop)
+    # Always running: hosts can turn the timer on for a single game.
+    socketio.start_background_task(turn_timer_loop)
 
 
 if __name__ == "__main__":

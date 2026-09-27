@@ -24,7 +24,45 @@
         <section class="card ruleset-card">
             <h2>Rule set: <span id="ruleset-name"></span></h2>
             <p id="ruleset-description" class="muted"></p>
+            <p id="ruleset-changed" class="rules-changed" hidden></p>
             <dl id="ruleset-summary" class="ruleset-summary"></dl>
+            <button type="button" class="btn btn-small" id="edit-rules-btn" hidden>Change rules for this game</button>
+        </section>
+
+        <section class="card" id="rules-editor-card" hidden>
+            <h2>Change rules for this game</h2>
+            <p class="muted small">Changes apply to this game only and every player sees them straight away.
+                The rule set file isn't touched.</p>
+            <form id="rules-form" autocomplete="off">
+                <div id="rules-fields" class="rule-form"></div>
+                <fieldset class="rule-section">
+                    <legend>This game</legend>
+                    <label class="rule-field"><span class="rule-label">Turn timer (seconds, 0 = off)</span>
+                        <input id="rules-turn-timer" type="number" min="0" max="{{ max_turn_timer }}" step="1"></label>
+                </fieldset>
+                <div class="panel-actions">
+                    <button type="submit" class="btn btn-primary">Apply to this game</button>
+                    <button type="button" class="btn" id="reset-rules-btn">Reset to the rule set</button>
+                    <button type="button" class="btn" id="close-rules-btn">Close</button>
+                </div>
+            </form>
+
+            <details class="save-ruleset">
+                <summary>Save these rules as a rule set (admin)</summary>
+                {% if not saving_enabled %}
+                <p class="muted small">Saving is turned off. Set <code>admin_password</code> in config.txt to enable it.</p>
+                {% else %}
+                <p class="muted small">Saves a rule set file (with this game's board and cards) that can be picked
+                    for future games. Using an existing id overwrites that rule set.</p>
+                <form id="save-ruleset-form" class="save-form" autocomplete="off">
+                    <label>Rule set id <input id="save-id" required pattern="[a-z0-9_\-]{1,40}" placeholder="e.g. house_rules"></label>
+                    <label>Name <input id="save-name" required maxlength="60" placeholder="e.g. House Rules"></label>
+                    <label class="wide">Description <input id="save-description" maxlength="300"></label>
+                    <label>Admin password <input id="save-password" type="password" required autocomplete="current-password"></label>
+                    <button type="submit" class="btn">Save rule set</button>
+                </form>
+                {% endif %}
+            </details>
         </section>
 
         <section class="card">
@@ -49,8 +87,9 @@
         </section>
     </main>
 
-    <footer class="site-footer">Recursopoly &middot; Phase 4</footer>
+    <footer class="site-footer">Recursopoly</footer>
 
+    <script id="rule-fields" type="application/json">{{ rule_fields | tojson }}</script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <script src="{{ url_for('static', filename='js/recursopoly.js') }}"></script>
 </body>

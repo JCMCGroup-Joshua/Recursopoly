@@ -571,6 +571,11 @@ class Game:
         self.created_at = time.time()
         # When the active player last did something (for the turn timer).
         self.turn_activity_at = None
+        # Seconds an idle turn may last (0 = no timer); the web layer sets it
+        # from config.txt and the host may change it in the lobby.
+        self.turn_timer = 0
+        # Rule values the host changed in the lobby (key -> value).
+        self.rule_changes = {}
 
         self.log = []  # human-readable lines for the event log panel
         self._events = []  # GameEvent queue for scores.csv
@@ -763,6 +768,33 @@ class Game:
         if was_current:
             self._advance_turn()
 
+    def set_rules(self, requested_by, values, turn_timer=None):
+        """The host changes this game's rule values before it starts.
+
+        ``values`` is a complete, already validated set of flat rule values
+        (see rulesets.validate_values). Players already seated get the new
+        starting money. The rule set files are not touched.
+        """
+        if not self.is_host(requested_by):
+            raise GameError("not_host", "Only the host can change the rules.")
+        if self.status != GameStatus.LOBBY:
+            raise GameError("started", "The rules can only be changed before the game starts.")
+        if len(self.players) > values["max_players"]:
+            raise GameError("bad_rules", f"{len(self.players)} players have already joined; "
+                                         f"the maximum can't be lower than that.")
+        changed = {k: v for k, v in values.items() if self.rules.get(k) != v}
+        self.rules = dict(values)
+        self.rule_changes = {k: v for k, v in values.items() if self.ruleset.values.get(k) != v}
+        for player in self.players:
+            player.money = self._rule("starting_money")
+        if turn_timer is not None and turn_timer != self.turn_timer:
+            self.turn_timer = turn_timer
+            changed["turn_timer"] = turn_timer
+        if changed:
+            self._say(f"{requested_by} changed the rules: " +
+                      ", ".join(k.replace("_", " ") for k in changed) + ".")
+        return changed
+
     def is_host(self, name):
         return self.host_name is not None and _same(name, self.host_name)
 
@@ -785,7 +817,9 @@ class Game:
         self.current_index = None
         self._say(f"The game of Recursopoly has started, playing {self.ruleset.name} rules!")
         for p in self.players:
-            self._event("game_started", p, details=f"players={len(self.players)}; ruleset={self.ruleset.id}")
+            self._event("game_started", p, details=(
+                f"players={len(self.players)}; ruleset={self.ruleset.id}"
+                + ("; custom_rules=yes" if self.rule_changes else "")))
         self._begin_turn(self._next_active_index(-1))
 
     # -- turns -------------------------------------------------------------
@@ -2278,7 +2312,11 @@ class Game:
                 "name": self.ruleset.name,
                 "description": self.ruleset.description,
                 "summary": self.ruleset_summary(),
+                "values": dict(self.rules),
+                "changed": sorted(self.rule_changes),
+                "board_count": len(self.boards),
             },
+            "turn_timer": self.turn_timer,
             "min_players": self._rule("min_players"),
             "max_players": self._rule("max_players"),
             "rules": {
