@@ -34,5 +34,8 @@
     "payout_trigger": "on_landing",
     "payout_split": "by_stake",
     "sell_back_percent": 50
+  },
+  "travel": {
+    "ticket_prices": []
   }
 }

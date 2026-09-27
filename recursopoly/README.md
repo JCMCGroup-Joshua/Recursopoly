@@ -3,9 +3,8 @@
 Recursopoly is a web-based, turn-based multiplayer board game in the spirit
 of Monopoly. Friends join a shared game with a short code, take turns
 rolling the dice, and race their tokens around the board. The name comes
-from the game's big idea: **boards within boards**. Later versions add
-smaller, pricier boards nested inside the outer one, linked by train
-stations.
+from the game's big idea: **boards within boards**. Smaller, pricier boards
+sit nested inside the outer one, linked by train stations.
 
 The game currently includes:
 
@@ -14,6 +13,7 @@ The game currently includes:
 - **Phase 3:** cards, jail, houses, mortgages, trading and bankruptcy
 - **Phase 4:** rule sets, custom property sets, stakeholder ownership and
   the adult-themed **AMST** rule set
+- **Phase 5:** nested boards and train travel (the **Recursopoly** rule set)
 
 Everything runs on Flask and Flask-SocketIO. There is **no database**:
 rule sets and boards are JSON files, server settings and card decks are
@@ -127,6 +127,32 @@ plain `.txt` files, and scores are appended to a `.csv` file.
     Its pot collects taxes and fines and pays out to its stakeholders by
     stake whenever anyone lands on it.
 
+## Features (Phase 5)
+
+- **Boards within boards.** A rule set can list several boards, outermost
+  first. The **Recursopoly** rule set plays on three:
+
+  | Board | Squares | Go salary | Properties |
+  | --- | --- | --- | --- |
+  | Classic London (outer) | 40 | £200 | £60–£400 |
+  | The Middle Ring | 24 | £300 | £300–£600 |
+  | The Core | 12 | £400 | £600–£800 |
+
+  The closer to the centre, the fewer squares and the higher the prices,
+  rents and taxes.
+- **Train travel.** Stations are portals. After landing on a station (and
+  buying it or paying rent), you may buy a ticket to any station on
+  another board. The fare depends on the destination board and costs more
+  further inward (£50 to the outer board, £150 to the Middle Ring, £300 to
+  The Core). Your token moves there, and your next roll continues on that
+  board. Doubles still earn another roll.
+- **Independent boards.** Each board loops on its own, with its own Go
+  salary, jail and colour groups. Station rent counts the stations the
+  owner has on that board.
+- **Nested view.** The game page draws each inner board inside the centre
+  of the board around it, with every token on the right board. A travel
+  panel lists the destinations and fares.
+
 ## Requirements
 
 - Python 3.9 or newer
@@ -189,6 +215,7 @@ Here is AMST:
 | --- | --- | --- | --- |
 | (top) | `name`, `description` | | Shown on the create form and in the lobby |
 | (top) | `board` | `boards/classic_board.json` | The property set / board file |
+| (top) | `boards` | | Instead of `board`: a list of board files, outermost first, for nested boards |
 | (top) | `cards` | Chance and Community Chest | `{square type: deck file}`; a square of that type draws from that deck |
 | `players` | `min_players` / `max_players` | 2 / 6 | Players needed to start / allowed to join |
 | `economy` | `starting_money` | 1500 | Money each player starts with |
@@ -207,6 +234,7 @@ Here is AMST:
 | `pooled_squares` | `receives` | `[]` | Bank payments that go into a pooled square's pot: any of `taxes` (tax squares), `fines` (jail fines), `fees` (card payments and repairs) |
 | `pooled_squares` | `payout_trigger` | `on_landing` | `on_landing`: anyone landing pays the pot out. `on_stakeholder_landing`: only a stakeholder landing does |
 | `pooled_squares` | `sell_back_percent` | 50 | Percentage of a stake's buy-in the bank pays when a stake is sold back |
+| `travel` | `ticket_prices` | `[]` | Train fare to reach a station on each board, in board order. Needed (one per board) when a rule set has several boards |
 | `pooled_squares` | `payout_split` | `by_stake` | `by_stake`: in proportion to stakes (unsold stakes' share stays in the pot). `equal`: split evenly between stakeholders |
 
 Board size is not a rule: it comes from the board file. A rule set may
@@ -258,7 +286,28 @@ given, or set `"size": 40` to fix the length.
 | anything else | a custom type. It's a label unless it's a pooled square. Add `"icon"` to show an emoji on the board |
 
 Squares without a `price` can't be bought. Group colours come from
-`groups`, so a custom board can invent its own colour groups.
+`groups`, so a custom board can invent its own colour groups. A board may
+also set its own `go_salary` (the Recursopoly inner boards do); otherwise
+the rule set's `go_salary` is used.
+
+### Nested boards
+
+List the boards outermost first; their position is their board id (0 is
+the outer board):
+
+```json
+{
+  "name": "Recursopoly",
+  "boards": ["boards/classic_board.json", "boards/recursopoly_middle.json",
+             "boards/recursopoly_core.json"],
+  "travel": {"ticket_prices": [50, 150, 300]}
+}
+```
+
+- Every `station` square is a portal to every station on the other boards.
+  The fare is the destination board's entry in `ticket_prices`.
+- Arriving by train has no landing effects (no rent, no buy offer).
+- A board without a `jail` sends players to the outer board's jail.
 
 ### Pooled (stakeholder) squares
 
@@ -322,7 +371,7 @@ devices on your network).
 ## How to play
 
 1. **Create a game.** On the Recursopoly home page, enter your name, pick
-   a **rule set** (for example Classic or AMST) and click **Create game**.
+   a **rule set** (Classic, AMST or Recursopoly) and click **Create game**.
    You become the host and land in the lobby. The lobby shows the join
    code in large letters and the rule set's key values.
 2. **Invite friends.** Share the join code. Each friend opens the home
@@ -339,15 +388,17 @@ devices on your network).
    houses and hotels, sell them, or mortgage and unmortgage squares.
 7. **Buy stakes.** Land on a pooled square (AMST's Strip Club) to buy a
    stake. Its pot pays out to stakeholders as the rule set says.
-8. **Trade.** Click **Propose a trade** to offer properties and money to
+8. **Take the train.** On nested boards, landing on a station offers
+   tickets to stations on the other boards. Pick one, or **Stay here**.
+9. **Trade.** Click **Propose a trade** to offer properties and money to
    another player. Offers to you appear under **Trades** with **Accept**
    and **Reject**.
-9. **In jail?** Pay the fine, use a card, or roll for doubles.
-10. **Can't pay?** Raise the money, then click **Pay**, or **Declare
+10. **In jail?** Pay the fine, use a card, or roll for doubles.
+11. **Can't pay?** Raise the money, then click **Pay**, or **Declare
    bankruptcy**.
-11. **Rejoin.** If you drop out, rejoin from the home page with the same
+12. **Rejoin.** If you drop out, rejoin from the home page with the same
     code and name.
-12. **Finish.** The game ends when one player is left, or when the host
+13. **Finish.** The game ends when one player is left, or when the host
     clicks **End game** (highest net worth wins). Everyone sees the final
     standings.
 
@@ -370,6 +421,7 @@ Events:
 - **Buildings and mortgages:** `house_built`, `hotel_built`,
   `building_sold`, `mortgaged`, `unmortgaged`
 - **Trading:** `trade_proposed`, `trade_accepted`, `trade_rejected`
+- **Train travel:** `ticket_purchased`, `board_changed`
 - **Endings:** `bankrupt`, `game_ended`
 
 When a game ends, one `game_ended` row is written per player. Its details
@@ -388,8 +440,9 @@ recursopoly/
     config.py           Loads config.txt
     logger.py           Appends rows to scores.csv
     config.txt          Server settings
-    rulesets/           classic.json, amst.json
-    boards/             classic_board.json, amst_board.json
+    rulesets/           classic.json, amst.json, recursopoly.json
+    boards/             classic_board.json, amst_board.json,
+                        recursopoly_middle.json, recursopoly_core.json
     cards/              Card decks (classic and AMST)
     templates/          index.html, lobby.html, game.html
     static/             recursopoly.css, recursopoly.js
@@ -406,12 +459,12 @@ python -m unittest discover tests
 
 The code is shaped so later phases add to it instead of rewriting it.
 
-Phases 2 to 4 are built on these hooks:
+Phases 2 to 5 are built on these hooks:
 
 - Landing effects (buy, rent, tax, cards, Go To Jail) live in
   `Game._resolve_landing()`.
 - Choices pause the turn in `TurnState.AWAITING_DECISION` with a
-  `Game.pending_decision` (`buy`, `buy_stake` or `debt`). `Game.decide()` (the `decide`
+  `Game.pending_decision` (`buy`, `buy_stake`, `debt` or `travel`). `Game.decide()` (the `decide`
   socket event) resumes it.
 - Every payment goes through `Game._pay()`. A payment that can't be covered
   becomes a debt instead of a negative balance.
@@ -424,17 +477,12 @@ Phases 2 to 4 are built on these hooks:
 - Each rule action (`build_house`, `mortgage`, `propose_trade`, ...) is a
   `Game` method with a matching socket event in `app.py`.
 
+- Boards live in `Game.boards`, keyed by `board_id`, and positions are
+  `Position(board_id, index)`. Train travel is `Game.travel_options()` and
+  a `travel` decision; journeys are counted in `Player.attributes`.
+
 Still to come:
 
-- **Phase 5: nested boards and train travel**
-  - A rule set lists several board files instead of one `board`. The
-    engine already keeps boards in `Game.boards`, keyed by `board_id`.
-  - Positions are already `Position(board_id, index)`, and movement uses
-    the player's current board.
-  - Per-board Go salaries come from a `go_salary` key in a board file and
-    are read by `Game.go_salary_for()`.
-  - Station tickets are another `AWAITING_DECISION` choice.
-  - The board centre in `recursopoly.js` is where inner boards get drawn.
 - **Phase 6: stats and polish**
   - `ScoreLogger.read_rows()` reads `scores.csv` back for the leaderboard
     and history pages.

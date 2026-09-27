@@ -587,3 +587,61 @@ details.ruleset-card > summary::after { content: " \25BE"; color: var(--muted); 
 }
 
 .prop-stake { font-weight: 700; }
+
+/* ---- Nested boards (Phase 5) --------------------------------------------- */
+
+.board-centre.has-nested {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2%;
+    gap: 2%;
+}
+
+.board-label {
+    font-size: clamp(0.55rem, 1vw, 0.85rem);
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.board.board-nested {
+    width: 88%;
+    border-width: 2px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+}
+
+.board-nested[data-depth="1"] > .board-centre { background: #e3eef8; }
+.board-nested[data-depth="2"] > .board-centre { background: #efe3f5; }
+.board-nested[data-depth="3"] > .board-centre { background: #f8ece0; }
+
+.board-nested .centre-logo {
+    font-size: clamp(0.5rem, 1.4vw, 1.1rem);
+    border-width: 2px;
+}
+
+/* The last card drawn, shown in the sidebar when the board centre is full. */
+.card-slot .drawn-card {
+    position: static;
+    transform: none;
+    width: auto;
+    margin: 0 0 10px;
+}
+
+/* Train tickets. */
+.panel-travel { background: #e3eef8; border-color: #90b4d8; }
+.travel-options { display: grid; gap: 6px; margin-bottom: 8px; }
+
+.travel-option {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "dest price" "board price";
+    text-align: left;
+    gap: 0 8px;
+}
+
+.travel-dest { grid-area: dest; }
+.travel-board { grid-area: board; font-weight: normal; font-size: 0.8rem; color: var(--muted); }
+.travel-price { grid-area: price; align-self: center; }

@@ -547,7 +547,9 @@ class Game:
         self.ruleset = ruleset
         self.rules = dict(ruleset.values)
         self.rng = rng or random.SystemRandom()
-        self.boards = {0: parse_board_data(ruleset.board, 0)}
+        # Boards are nested: board 0 is the outer board, higher ids are
+        # smaller boards further in.
+        self.boards = {bid: parse_board_data(data, bid) for bid, data in enumerate(ruleset.boards)}
         self.decks = {name: Deck(name, cards, self.rng) for name, cards in ruleset.decks.items()}
 
         self.status = GameStatus.LOBBY
@@ -851,6 +853,8 @@ class Game:
         decision = self.pending_decision
         if decision and decision["type"] in ("buy", "buy_stake"):
             self._say(f"{player.name} did not buy {decision['square']}.")
+        elif decision and decision["type"] == "travel":
+            self._say(f"{player.name} stayed on {decision['from']}.")
         # An unpaid debt stays with the player and is settled on their next turn.
         self._advance_turn()
         return self.current_index != before
@@ -919,11 +923,17 @@ class Game:
         elif self.turn_state == TurnState.AWAITING_DECISION:
             # A buy offer: the turn pauses until the player calls decide().
             self.pending_decision["roll_again"] = doubles
-        else:
+        elif not self._offer_travel(player, doubles):
             result["roll_again"] = self._finish_move(player, doubles)
             return result
         result["decision"] = dict(self.pending_decision)
         return result
+
+    def _continue_turn(self, player, doubles):
+        """After a buy or debt decision on a square: offer train travel if the
+        player is on a station, otherwise finish the move."""
+        if not self._offer_travel(player, doubles):
+            self._finish_move(player, doubles)
 
     def _finish_move(self, player, doubles):
         """End of a move: roll again on doubles, otherwise pass the turn.
@@ -941,7 +951,7 @@ class Game:
         * "buy" and "buy_stake" decisions: choice "buy" or "decline".
         * "debt" decisions: choice "pay" (once enough money is raised) or
           "bankrupt".
-        Phase 5 adds train tickets here.
+        * "travel" decisions: choice "stay" or "travel:<board_id>:<index>".
         """
         player = self._require_current(name)
         decision = self.pending_decision
@@ -959,7 +969,7 @@ class Game:
             else:
                 self._say(f"{player.name} decided not to buy {square.name}.")
             self.pending_decision = None
-            self._finish_move(player, decision.get("roll_again", False))
+            self._continue_turn(player, decision.get("roll_again", False))
             return
 
         if decision["type"] == "debt":
@@ -969,11 +979,20 @@ class Game:
                 if decision.get("turn_start"):
                     self.turn_state = TurnState.WAITING_TO_ROLL
                 else:
-                    self._finish_move(player, decision.get("roll_again", False))
+                    self._continue_turn(player, decision.get("roll_again", False))
             elif choice == "bankrupt":
                 self._declare_bankrupt(player)
             else:
                 raise GameError("bad_choice", "Choose to pay or declare bankruptcy.")
+            return
+
+        if decision["type"] == "travel":
+            if choice == "stay":
+                self._say(f"{player.name} stayed on {decision['from']}.")
+            else:
+                self._travel(player, choice, decision["options"])
+            self.pending_decision = None
+            self._finish_move(player, decision.get("roll_again", False))
             return
 
         raise GameError("bad_choice", "Unknown decision.")  # pragma: no cover
@@ -1003,10 +1022,83 @@ class Game:
         steps = (index - player.position.index) % board.size
         self._move_forward(player, steps)
 
+    # -- train travel (nested boards) ----------------------------------------
+
+    def ticket_price(self, board_id):
+        """Fare to reach a station on ``board_id`` (dearer further inward)."""
+        prices = self._rule("ticket_prices")
+        return prices[min(board_id, len(prices) - 1)] if prices else None
+
+    def travel_options(self, player):
+        """Stations on other boards the player can buy a ticket to, when they
+        stand on a station. [] on single-board rule sets."""
+        here = self.square_at(player.position)
+        if len(self.boards) < 2 or here.type != "station":
+            return []
+        options = []
+        for bid, board in sorted(self.boards.items()):
+            if bid == player.position.board_id:
+                continue
+            price = self.ticket_price(bid)
+            if price is None:
+                continue
+            for sq in board.squares:
+                if sq.type == "station":
+                    options.append({"board_id": bid, "index": sq.index, "name": sq.name,
+                                    "board": board.name, "price": price})
+        return options
+
+    def _offer_travel(self, player, doubles):
+        """Offer a train ticket if the player is on a station. Returns True if
+        the turn now waits for their choice."""
+        if player.debts or player.in_jail:
+            return False
+        options = [o for o in self.travel_options(player) if o["price"] <= player.money]
+        if not options:
+            return False
+        here = self.square_at(player.position)
+        self.pending_decision = {
+            "type": "travel",
+            "player": player.name,
+            "from": here.name,
+            "options": options,
+            "roll_again": doubles,
+        }
+        self.turn_state = TurnState.AWAITING_DECISION
+        return True
+
+    def _travel(self, player, choice, options):
+        """Buy a ticket and move to the chosen station. Arriving has no landing
+        effects; the player's next roll continues on the new board."""
+        try:
+            _, board_id, index = str(choice).split(":")
+            board_id, index = int(board_id), int(index)
+        except ValueError:
+            raise GameError("bad_choice", "Choose a destination or stay.") from None
+        option = next((o for o in options if o["board_id"] == board_id and o["index"] == index), None)
+        if option is None:
+            raise GameError("bad_choice", "You can't travel there from here.")
+        if player.money < option["price"]:
+            raise GameError("cant_afford", f"You need {money(option['price'])} for that ticket.")
+        origin = self.square_at(player.position)
+        from_board = self.board_for(player)
+        player.money -= option["price"]
+        player.position = Position(board_id, index)
+        player.attributes["journeys"] = player.attributes.get("journeys", 0) + 1
+        self._say(f"{player.name} bought a {money(option['price'])} ticket from {origin.name} to "
+                  f"{option['name']} on {option['board']}.")
+        self._event("ticket_purchased", player,
+                    details=f"from={origin.name}; to={option['name']}; price={option['price']}")
+        self._event("board_changed", player,
+                    details=f"from_board={from_board.board_id}; to_board={board_id}")
+
     # -- jail --------------------------------------------------------------
 
     def _send_to_jail(self, player, reason):
         board = self.board_for(player)
+        if board.find_first("jail") is None:
+            # Boards without a jail send players to the outer board's jail.
+            board = self.boards[self.start_board_id]
         player.position = Position(board.board_id, board.jail_index)
         player.doubles_in_a_row = 0
         player.in_jail = True
@@ -2050,6 +2142,12 @@ class Game:
             ("Doubles before jail", str(r("doubles_before_jail"))),
             ("Lap before buying", yes_no[r("must_lap_before_buying")]),
         ]
+        if len(self.boards) > 1:
+            rows.append(("Boards", ", ".join(
+                f"{b.name} ({b.size} squares, Go {money(self.go_salary_for(b))})"
+                for _, b in sorted(self.boards.items()))))
+            rows.append(("Train tickets", ", ".join(
+                f"{money(self.ticket_price(bid))} to {b.name}" for bid, b in sorted(self.boards.items()))))
         pools = [sq for board in self.boards.values() for sq in board.pools()]
         for sq in pools:
             feeds = ", ".join(r("pool_receives")) or "nothing"
@@ -2105,6 +2203,7 @@ class Game:
                 "max_hotels_per_property": self._rule("max_hotels_per_property"),
                 "houses_before_hotel": self._rule("houses_before_hotel"),
                 "must_lap_before_buying": self._rule("must_lap_before_buying"),
+                "ticket_prices": self._rule("ticket_prices"),
             },
             "winner": self.winner,
             "standings": [

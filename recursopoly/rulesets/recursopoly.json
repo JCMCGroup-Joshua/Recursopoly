@@ -1,0 +1,12 @@
+{
+  "name": "Recursopoly",
+  "description": "Boards within boards: the classic board with a smaller, pricier Middle Ring inside it and The Core at the centre. Land on a station to buy a train ticket to a station on another board.",
+  "boards": [
+    "boards/classic_board.json",
+    "boards/recursopoly_middle.json",
+    "boards/recursopoly_core.json"
+  ],
+  "travel": {
+    "ticket_prices": [50, 150, 300]
+  }
+}

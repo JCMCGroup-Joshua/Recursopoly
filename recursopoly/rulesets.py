@@ -6,13 +6,15 @@ grouped into sections:
     {
       "name": "AMST",
       "description": "...",
-      "board": "boards/amst_board.json",        # the property set / board
+      "board": "boards/amst_board.json",        # the property set / board, or
+      "boards": ["boards/outer.json", ...],     # several nested boards, outer first
       "cards": {"chance": "cards/...txt", ...},  # one deck per card square type
       "players":     {"min_players": 2, ...},
       "economy":     {"starting_money": 2000, ...},
       "building":    {"max_hotels_per_property": 3, ...},
       "house_rules": {"must_lap_before_buying": true, ...},
-      "pooled_squares": {"receives": ["taxes", "fines"], "payout_trigger": ...}
+      "pooled_squares": {"receives": ["taxes", "fines"], "payout_trigger": ...},
+      "travel":      {"ticket_prices": [50, 150, 300]}
     }
 
 rulesets/classic.json is the base: any section or value another rule set
@@ -31,8 +33,8 @@ from dataclasses import dataclass, field
 from game_engine import parse_board_data, parse_cards_text
 
 BASE_RULESET = "classic"
-SECTIONS = ("players", "economy", "building", "house_rules", "pooled_squares")
-TOP_LEVEL_KEYS = {"name", "description", "board", "cards", *SECTIONS}
+SECTIONS = ("players", "economy", "building", "house_rules", "pooled_squares", "travel")
+TOP_LEVEL_KEYS = {"name", "description", "board", "boards", "cards", *SECTIONS}
 # Keys in these sections get a prefix when flattened, so the engine reads
 # e.g. pooled_squares.receives as "pool_receives".
 KEY_PREFIX = {"pooled_squares": "pool_"}
@@ -45,6 +47,7 @@ REQUIRED_VALUES = (
     "max_houses_per_property", "houses_before_hotel", "max_hotels_per_property",
     "doubles_before_jail", "max_jail_turns", "must_lap_before_buying",
     "pool_receives", "pool_payout_trigger", "pool_payout_split", "pool_sell_back_percent",
+    "ticket_prices",
 )
 
 POOL_CATEGORIES = {"taxes", "fines", "fees"}
@@ -58,10 +61,15 @@ class RuleSet:
     name: str
     description: str
     values: dict            # flat {"starting_money": 1500, ...}
-    board: dict             # parsed board JSON
+    boards: list            # parsed board JSON, outermost first (board_id = position)
     decks: dict             # {deck name: [Card, ...]}
     sections: dict = field(default_factory=dict)  # merged sections, for display
     path: str = ""
+
+    @property
+    def board(self):
+        """The outer board (the only one in single-board rule sets)."""
+        return self.boards[0]
 
     def with_values(self, **overrides):
         """A copy with some values replaced (handy for tests and experiments)."""
@@ -87,12 +95,25 @@ def _load_decks(card_paths, root):
     return decks
 
 
+def _board_paths(data):
+    """The board file(s) a rule set names: "boards" (a list, outer first)
+    or a single "board"."""
+    if "boards" in data:
+        boards = data["boards"]
+        if not isinstance(boards, list) or not boards or not all(isinstance(b, str) for b in boards):
+            raise ValueError("'boards' must be a non-empty list of board file paths")
+        return list(boards)
+    if "board" in data:
+        return [data["board"]]
+    return []
+
+
 def _merge(base, data):
     """Section-by-section merge of ``data`` over ``base``."""
     merged = {
         "name": data.get("name", base.get("name")),
         "description": data.get("description", ""),
-        "board": data.get("board", base.get("board")),
+        "boards": _board_paths(data) or _board_paths(base),
         "cards": data.get("cards", base.get("cards", {})),
     }
     for section in SECTIONS:
@@ -124,7 +145,7 @@ def _label(flat_key):
     return flat_key
 
 
-def _validate(flat, board, required, where):
+def _validate(flat, boards, required, where):
     missing = sorted(set(required) - set(flat))
     if missing:
         raise ValueError(f"{where}: missing values {', '.join(_label(k) for k in missing)}")
@@ -140,6 +161,11 @@ def _validate(flat, board, required, where):
             if flat[key] not in POOL_TRIGGERS:
                 raise ValueError(f"{where}: pooled_squares.payout_trigger must be one of "
                                  f"{sorted(POOL_TRIGGERS)}")
+        elif key == "ticket_prices":
+            prices = flat[key]
+            if not isinstance(prices, list) or not all(
+                    isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in prices):
+                raise ValueError(f"{where}: travel.ticket_prices must be a list of whole numbers")
         elif key == "pool_payout_split":
             if flat[key] not in POOL_SPLITS:
                 raise ValueError(f"{where}: pooled_squares.payout_split must be one of "
@@ -152,8 +178,12 @@ def _validate(flat, board, required, where):
         raise ValueError(f"{where}: houses_before_hotel can't exceed max_houses_per_property")
     if flat["doubles_before_jail"] < 1 or flat["max_jail_turns"] < 1:
         raise ValueError(f"{where}: doubles_before_jail and max_jail_turns must be at least 1")
-    # Parsing the board checks its structure (indexes, pooled squares, ...).
-    parse_board_data(board, 0)
+    # Parsing the boards checks their structure (indexes, pooled squares, ...).
+    for board_id, board in enumerate(boards):
+        parse_board_data(board, board_id)
+    if len(boards) > 1 and len(flat["ticket_prices"]) < len(boards):
+        raise ValueError(f"{where}: travel.ticket_prices needs a price for each of the "
+                         f"{len(boards)} boards (the fare to reach a station on that board)")
 
 
 def load_ruleset(path, root, base=None):
@@ -167,18 +197,21 @@ def load_ruleset(path, root, base=None):
     if unknown:
         raise ValueError(f"{path}: unknown key(s) {', '.join(unknown)}; "
                          f"expected {', '.join(sorted(TOP_LEVEL_KEYS))}")
-    merged = _merge(base or {}, data)
-    if not merged["board"]:
+    try:
+        merged = _merge(base or {}, data)
+    except ValueError as err:
+        raise ValueError(f"{path}: {err}") from None
+    if not merged["boards"]:
         raise ValueError(f"{path}: no 'board' given")
     flat = _flatten(merged)
-    board = _read_json(os.path.join(root, merged["board"]))
-    _validate(flat, board, REQUIRED_VALUES, path)
+    boards = [_read_json(os.path.join(root, rel)) for rel in merged["boards"]]
+    _validate(flat, boards, REQUIRED_VALUES, path)
     return RuleSet(
         id=rid,
         name=merged["name"] or rid,
         description=merged["description"],
         values=flat,
-        board=board,
+        boards=boards,
         decks=_load_decks(merged["cards"], root),
         sections={s: dict(merged[s]) for s in SECTIONS},
         path=path,
