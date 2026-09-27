@@ -1241,104 +1241,152 @@
     }
 
     function initSettings() {
-        var fields = jsonData("rule-fields");
-        var rulesets = jsonData("rulesets-data");
-        var picker = $("ruleset-picker");
-        var readForm = null;
-        var params = new URLSearchParams(window.location.search);
+        var form = $("unlock-form");
+        if (!form) return;  // no admin password set: nothing can be unlocked
+        var password = null;  // kept only in memory while unlocked
+        var data = null;
+        var readRuleForm = null;
+        var serverReaders = {};
 
-        rulesets.forEach(function (rs) {
-            var opt = el("option", null, rs.name + " (" + rs.id + ")");
-            opt.value = rs.id;
-            picker.appendChild(opt);
-        });
-        if (params.get("ruleset")) picker.value = params.get("ruleset");
-        if (params.get("saved")) showMessage(params.get("saved"), true);
-
-        function current() {
-            return rulesets.filter(function (rs) { return rs.id === picker.value; })[0];
+        // Ask the server for the settings; it only answers with the right password.
+        function unlock(pw, selectId, message) {
+            return postJSON("/settings/unlock", { password: pw }).then(function (res) {
+                if (!res.ok) {
+                    showMessage(res.error, false);
+                    return;
+                }
+                password = pw;
+                data = res;
+                $("unlock-card").hidden = true;
+                $("settings-unlocked").hidden = false;
+                $("unlock-password").value = "";
+                showRulesets(selectId);
+                showServer();
+                if (message) showMessage(message, true);
+                else $("settings-message").hidden = true;
+            }).catch(function () { showMessage("Could not reach the server.", false); });
         }
-        function show() {
-            var rs = current();
+
+        function lock() {
+            password = null;
+            data = null;
+            $("settings-unlocked").hidden = true;
+            $("unlock-card").hidden = false;
+            $("ruleset-fields").replaceChildren();
+            $("server-fields").replaceChildren();
+            $("settings-message").hidden = true;
+            $("unlock-password").focus();
+        }
+
+        form.addEventListener("submit", function (ev) {
+            ev.preventDefault();
+            unlock($("unlock-password").value);
+        });
+        $("lock-btn").addEventListener("click", lock);
+
+        // ---- Rule sets
+        var picker = $("ruleset-picker");
+
+        function currentRuleset() {
+            return data.rulesets.filter(function (rs) { return rs.id === picker.value; })[0];
+        }
+
+        function showRuleset() {
+            var rs = currentRuleset();
             $("rs-name").value = rs.name;
             $("rs-description").value = rs.description;
             $("ruleset-boards").textContent = "Board" + (rs.boards.length > 1 ? "s" : "") + ": " +
                 rs.boards.join(", ") + " (boards and card decks are set in the file)";
-            readForm = buildRuleForm($("ruleset-fields"), fields, rs.values, []);
+            readRuleForm = buildRuleForm($("ruleset-fields"), data.rule_fields, rs.values, []);
         }
-        picker.addEventListener("change", show);
-        show();
 
-        function save(id) {
+        function showRulesets(selectId) {
+            var keep = selectId || picker.value;
+            picker.replaceChildren();
+            data.rulesets.forEach(function (rs) {
+                var opt = el("option", null, rs.name + " (" + rs.id + ")");
+                opt.value = rs.id;
+                picker.appendChild(opt);
+            });
+            if (keep && data.rulesets.some(function (rs) { return rs.id === keep; })) picker.value = keep;
+            showRuleset();
+        }
+        picker.addEventListener("change", showRuleset);
+
+        function saveRuleset(id) {
             postJSON("/settings/ruleset", {
-                password: $("admin-password").value, id: id, source: picker.value,
+                password: password, id: id, source: picker.value,
                 name: $("rs-name").value.trim(), description: $("rs-description").value.trim(),
-                values: readForm()
+                values: readRuleForm()
             }).then(function (res) {
-                if (res.ok) {
-                    window.location.href = "/settings?ruleset=" + encodeURIComponent(res.id) +
-                        "&saved=" + encodeURIComponent(res.message);
-                } else {
-                    showMessage(res.error, false);
-                }
+                if (res.ok) unlock(password, res.id, res.message);  // reload the saved data
+                else showMessage(res.error, false);
             }).catch(function () { showMessage("Could not reach the server.", false); });
         }
-        $("ruleset-form").addEventListener("submit", function (ev) { ev.preventDefault(); save(picker.value); });
+        $("ruleset-form").addEventListener("submit", function (ev) {
+            ev.preventDefault();
+            saveRuleset(picker.value);
+        });
         $("save-as-btn").addEventListener("click", function () {
             var id = $("rs-new-id").value.trim().toLowerCase();
             if (!/^[a-z0-9_-]{1,40}$/.test(id)) {
                 showMessage("Enter a new id using lower-case letters, digits, _ or -.", false);
                 return;
             }
-            save(id);
+            $("rs-new-id").value = "";
+            saveRuleset(id);
         });
 
-        // Server settings.
-        var serverFields = jsonData("server-fields-data");
-        var serverValues = jsonData("server-values");
-        var container = $("server-fields");
-        var readers = {};
-        var fieldset = el("fieldset", "rule-section");
-        fieldset.appendChild(el("legend", null, "config.txt"));
-        container.appendChild(fieldset);
-        serverFields.forEach(function (f) {
-            var row = el("label", "rule-field");
-            row.appendChild(el("span", "rule-label", f.label + (f.restart ? " \u27f3" : "")));
-            var input;
-            if (f.type === "ruleset") {
-                input = el("select");
-                rulesets.forEach(function (rs) {
-                    var opt = el("option", null, rs.name);
-                    opt.value = rs.id;
-                    opt.selected = rs.id === serverValues[f.key];
-                    input.appendChild(opt);
-                });
-                readers[f.key] = function () { return input.value; };
-            } else if (f.type === "bool") {
-                row.classList.add("rule-check");
-                input = el("input");
-                input.type = "checkbox";
-                input.checked = !!serverValues[f.key];
-                readers[f.key] = function () { return input.checked; };
-            } else {
-                input = el("input");
-                if (f.type === "int") { input.type = "number"; input.min = 0; input.step = 1; }
-                input.value = serverValues[f.key];
-                readers[f.key] = function () { return input.value; };
-            }
-            if (f.type === "bool") row.insertBefore(input, row.firstChild); else row.appendChild(input);
-            fieldset.appendChild(row);
-        });
+        // ---- Server settings
+        function showServer() {
+            var container = $("server-fields");
+            container.replaceChildren();
+            serverReaders = {};
+            var values = data.server_values;
+            var fieldset = el("fieldset", "rule-section");
+            fieldset.appendChild(el("legend", null, "config.txt"));
+            container.appendChild(fieldset);
+            data.server_fields.forEach(function (f) {
+                var row = el("label", "rule-field");
+                row.appendChild(el("span", "rule-label", f.label + (f.restart ? " \u27f3" : "")));
+                var input;
+                if (f.type === "ruleset") {
+                    input = el("select");
+                    data.rulesets.forEach(function (rs) {
+                        var opt = el("option", null, rs.name);
+                        opt.value = rs.id;
+                        opt.selected = rs.id === values[f.key];
+                        input.appendChild(opt);
+                    });
+                    serverReaders[f.key] = function () { return input.value; };
+                } else if (f.type === "bool") {
+                    row.classList.add("rule-check");
+                    input = el("input");
+                    input.type = "checkbox";
+                    input.checked = !!values[f.key];
+                    serverReaders[f.key] = function () { return input.checked; };
+                } else {
+                    input = el("input");
+                    if (f.type === "int") { input.type = "number"; input.min = 0; input.step = 1; }
+                    input.value = values[f.key];
+                    serverReaders[f.key] = function () { return input.value; };
+                }
+                if (f.type === "bool") row.insertBefore(input, row.firstChild); else row.appendChild(input);
+                fieldset.appendChild(row);
+            });
+        }
+
         $("server-form").addEventListener("submit", function (ev) {
             ev.preventDefault();
             var values = {};
-            Object.keys(readers).forEach(function (k) { values[k] = readers[k](); });
-            postJSON("/settings/server", {
-                password: $("admin-password").value, values: values, new_password: $("new-password").value
-            }).then(function (res) {
-                showMessage(res.ok ? res.message : res.error, res.ok);
-                if (res.ok) $("new-password").value = "";
-            }).catch(function () { showMessage("Could not reach the server.", false); });
+            Object.keys(serverReaders).forEach(function (k) { values[k] = serverReaders[k](); });
+            var newPassword = $("new-password").value;
+            postJSON("/settings/server", { password: password, values: values, new_password: newPassword })
+                .then(function (res) {
+                    showMessage(res.ok ? res.message : res.error, res.ok);
+                    if (res.ok && newPassword) password = newPassword;  // stay unlocked
+                    if (res.ok) $("new-password").value = "";
+                }).catch(function () { showMessage("Could not reach the server.", false); });
         });
     }
 

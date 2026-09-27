@@ -167,17 +167,67 @@ def history_game(code):
 
 @app.route("/settings")
 def settings_page():
-    """View and change rule sets and server settings. Saving needs the admin
-    password; without one set in config.txt the page is read-only."""
+    """The settings page. It is locked: the page itself holds no settings,
+    they are only sent by /settings/unlock once the admin password is
+    accepted."""
+    return render_template("settings.html", saving_enabled=bool(CONFIG.admin_password))
+
+
+def _settings_data():
+    """Everything the settings page edits: rule sets and server settings."""
     rulesets = [{
         "id": rs.id, "name": rs.name, "description": rs.description,
         "values": rs.values, "board_count": len(rs.boards),
         "boards": [b.get("name", path) for b, path in zip(rs.boards, rs.board_paths)],
     } for rs in RULESETS.values()]
-    server = {f["key"]: CONFIG.get(f["key"]) for f in SERVER_FIELDS}
-    return render_template("settings.html", rule_fields=RULE_FIELDS, rulesets=rulesets,
-                           server_fields=SERVER_FIELDS, server_values=server,
-                           saving_enabled=bool(CONFIG.admin_password))
+    return {
+        "rule_fields": RULE_FIELDS,
+        "rulesets": rulesets,
+        "server_fields": SERVER_FIELDS,
+        "server_values": {f["key"]: CONFIG.get(f["key"]) for f in SERVER_FIELDS},
+    }
+
+
+# Wrong admin passwords per client address, to slow down guessing.
+MAX_PASSWORD_FAILURES = 5
+PASSWORD_LOCKOUT_SECONDS = 300
+password_failures = {}  # address -> [times of recent failures]
+
+
+def _password_error(given):
+    """None if ``given`` is the admin password, else (message, http status).
+    After MAX_PASSWORD_FAILURES wrong tries an address must wait."""
+    if not CONFIG.admin_password:
+        return ("Saving is turned off: set admin_password in config.txt and restart the "
+                "server.", 403)
+    address = request.remote_addr or "?"
+    now = time.time()
+    recent = [t for t in password_failures.get(address, []) if now - t < PASSWORD_LOCKOUT_SECONDS]
+    if len(recent) >= MAX_PASSWORD_FAILURES:
+        wait = int(PASSWORD_LOCKOUT_SECONDS - (now - recent[0])) + 1
+        return f"Too many wrong passwords. Try again in {wait} seconds.", 429
+    if not CONFIG.check_admin_password(given):
+        recent.append(now)
+        password_failures[address] = recent
+        return "Wrong admin password.", 403
+    password_failures.pop(address, None)
+    return None
+
+
+def _password_problem(given):
+    """Like _password_error, as a JSON error response for HTTP routes."""
+    error = _password_error(given)
+    return _json_error(*error) if error else None
+
+
+@app.route("/settings/unlock", methods=["POST"])
+def unlock_settings():
+    """{"password"}: returns the settings once the admin password is right."""
+    problem = _password_problem((request.get_json(silent=True) or {}).get("password"))
+    if problem:
+        return problem
+    with state_lock:
+        return jsonify({"ok": True, **_settings_data()})
 
 
 def _json_error(message, status=400):
@@ -189,9 +239,9 @@ def save_ruleset_route():
     """{"password", "id", "name", "description", "source", "values"}: save
     a rule set (a new id, or overwrite an existing one)."""
     data = request.get_json(silent=True) or {}
-    if not CONFIG.check_admin_password(data.get("password")):
-        return _json_error("Wrong admin password (or saving is turned off: set admin_password "
-                           "in config.txt).", 403)
+    problem = _password_problem(data.get("password"))
+    if problem:
+        return problem
     with state_lock:
         source = RULESETS.get(data.get("source") or data.get("id"))
         if source is None:
@@ -210,9 +260,9 @@ def save_server_settings():
     """{"password", "values": {...}, "new_password"}: save server settings
     to config.txt and apply them (host, port and debug need a restart)."""
     data = request.get_json(silent=True) or {}
-    if not CONFIG.check_admin_password(data.get("password")):
-        return _json_error("Wrong admin password (or saving is turned off: set admin_password "
-                           "in config.txt).", 403)
+    problem = _password_problem(data.get("password"))
+    if problem:
+        return problem
     allowed = {f["key"]: f for f in SERVER_FIELDS}
     changes = dict(data.get("values") or {})
     unknown = sorted(set(changes) - set(allowed))
@@ -618,9 +668,9 @@ def on_save_ruleset(data):
             return send_error("You are not in a game.", "no_session")
         if not game.is_host(name):
             return send_error("Only the host can save the rules.", "not_host")
-        if not CONFIG.check_admin_password(data.get("password")):
-            return send_error("Wrong admin password (or saving from the web is turned off: "
-                              "set admin_password in config.txt).", "bad_password")
+        error = _password_error(data.get("password"))
+        if error:
+            return send_error(error[0], "bad_password")
         try:
             rid = _save_ruleset_file(data.get("id"), data.get("name"), data.get("description"),
                                      game.ruleset, dict(game.rules))

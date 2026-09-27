@@ -795,3 +795,9 @@ details.ruleset-card > summary::after { content: " \25BE"; color: var(--muted); 
 .banner-info { background: #e3eef8; color: #1c3d5a; border: 1px solid #90b4d8; font-weight: 500; }
 .settings-page code { background: rgba(0, 0, 0, 0.06); padding: 1px 4px; border-radius: 4px; }
 .save-form label.wide { grid-column: 1 / -1; }
+
+/* Locked settings page. */
+.unlock-card h2 { margin-bottom: 6px; }
+.settings-unlocked { display: grid; gap: 16px; }
+.unlocked-bar { display: flex; justify-content: space-between; align-items: center; font-weight: 700; color: var(--good); }
+.unlocked-bar .btn { margin-top: 0; }
