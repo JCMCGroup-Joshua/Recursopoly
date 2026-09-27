@@ -115,14 +115,15 @@ plain `.txt` files, and scores are appended to a `.csv` file.
 - **House rules.** `must_lap_before_buying` stops players buying anything
   until they have been round the board once. `doubles_before_jail` sets how
   many doubles in a row send you to jail.
-- **AMST.** An adult-themed rule set with its own board ("AMST After
-  Dark"):
-  - bars, cabaret, tattoo studios, casinos and cellars, with its own
-    "Last Call" and "Lucky Dip" card decks
+- **AMST.** An adult-themed rule set with its own board ("AMST Board"):
+  - The Velvet Lounge and Neon Alley (the red group), Central Station,
+    and bars, cabaret, tattoo studios, casinos and cellars
+  - its own "Last Call" and "Lucky Dip" card decks
   - £2000 starting money, £250 Go salary and a £75 jail fine
   - up to 3 hotels per property, and a full lap before buying
-  - **The Strip Club** sits in the Free Parking corner. Its pot collects
-    taxes, fines and card fees and pays out to its stakeholders by stake.
+  - **The Strip Club** (square 15) is a pooled square with 4 stakes at £150.
+    Its pot collects taxes and fines and pays out to its stakeholders by
+    stake whenever anyone lands on it.
 
 ## Requirements
 
@@ -171,14 +172,14 @@ Here is AMST:
 ```json
 {
   "name": "AMST",
-  "description": "Adult-themed rule set: ...",
+  "description": "Adult-themed rule set with custom properties and pooled stakeholder squares",
   "board": "boards/amst_board.json",
   "cards": {"chance": "cards/amst_last_call.txt", "community_chest": "cards/amst_lucky_dip.txt"},
   "economy":     {"starting_money": 2000, "go_salary": 250, "jail_fine": 75},
   "building":    {"max_houses_per_property": 4, "houses_before_hotel": 4, "max_hotels_per_property": 3},
   "house_rules": {"doubles_before_jail": 3, "must_lap_before_buying": true},
-  "pool":        {"pool_receives": ["taxes", "fines", "fees"],
-                  "pool_payout_trigger": "on_landing", "pool_payout_split": "by_stake"}
+  "pooled_squares": {"receives": ["taxes", "fines"],
+                     "payout_trigger": "on_landing", "payout_split": "by_stake"}
 }
 ```
 
@@ -201,12 +202,13 @@ Here is AMST:
 | `house_rules` | `doubles_before_jail` | 3 | Doubles in a row that send a player to jail |
 | `house_rules` | `max_jail_turns` | 3 | Tries at rolling doubles before the fine must be paid |
 | `house_rules` | `must_lap_before_buying` | false | Players must pass Go once before buying anything |
-| `pool` | `pool_receives` | `[]` | Bank payments that go into a pooled square's pot: any of `taxes` (tax squares), `fines` (jail fines), `fees` (card payments and repairs) |
-| `pool` | `pool_payout_trigger` | `on_landing` | `on_landing`: anyone landing pays the pot out. `on_stakeholder_landing`: only a stakeholder landing does |
-| `pool` | `pool_payout_split` | `by_stake` | `by_stake`: in proportion to stakes (unsold stakes' share stays in the pot). `equal`: split evenly between stakeholders |
+| `pooled_squares` | `receives` | `[]` | Bank payments that go into a pooled square's pot: any of `taxes` (tax squares), `fines` (jail fines), `fees` (card payments and repairs) |
+| `pooled_squares` | `payout_trigger` | `on_landing` | `on_landing`: anyone landing pays the pot out. `on_stakeholder_landing`: only a stakeholder landing does |
+| `pooled_squares` | `payout_split` | `by_stake` | `by_stake`: in proportion to stakes (unsold stakes' share stays in the pot). `equal`: split evenly between stakeholders |
 
-Board size is not a rule: it is simply the number of squares in the board
-file.
+Board size is not a rule: it comes from the board file. A rule set may
+only use the keys above; an unknown section or key (a typo, say) stops the
+server with an error naming it.
 
 ### Writing a new rule set
 
@@ -222,9 +224,12 @@ No code changes are needed.
 ### Boards (property sets)
 
 A board is a JSON file in `boards/`: an object with a `name`, optional
-colour `groups`, and a `squares` array listed in order from Go. Each square
-has `index` (its position, starting at 0), `name` and `type`, plus any
-keys for its type:
+colour `groups`, and a `squares` array. Each square has `index` (its
+position, with Go at 0), `name` and `type`, plus any keys for its type.
+
+Squares can be listed in any order, and indexes can have gaps: missing
+positions become blank squares. The board runs up to the highest index
+given, or set `"size": 40` to fix the length.
 
 ```json
 {
@@ -241,9 +246,9 @@ keys for its type:
 
 | Type | Keys |
 | --- | --- |
-| `go`, `jail`, `go_to_jail`, `free_parking` | none |
+| `go`, `jail`, `go_to_jail`, `free_parking` (or `free`) | none |
 | `property` | `group`, `price`, `rent` (base rent), `house_rents` (rent with 1, 2, ... houses), `hotel_rents` (rent with 1, 2, ... hotels), `house_cost`, `hotel_cost` |
-| `station` | `price`, `rents` (rent when the owner has 1, 2, 3, 4 stations) |
+| `station` | `price`, and `rents` (rent when the owner has 1, 2, 3, 4 stations) or a single `rent` |
 | `utility` | `price`, `dice_multipliers` (dice total × this, by utilities owned) |
 | `tax` | `amount` |
 | `chance`, `community_chest` or any deck name | draws a card from the deck the rule set gives for that type |
@@ -258,8 +263,7 @@ Add `"stakeholder": true` to any square, whatever its type, to make it
 pooled:
 
 ```json
-{"index": 20, "name": "The Strip Club", "type": "strip_club", "icon": "💃",
- "stakeholder": true, "max_stakes": 4, "buy_in": 200}
+{"index": 15, "name": "The Strip Club", "type": "pooled", "stakeholder": true, "max_stakes": 4, "buy_in": 150}
 ```
 
 - `max_stakes` is how many equal stakes exist (4 means 25% each).
@@ -268,7 +272,8 @@ pooled:
   stakes remain. The same lap and debt rules as buying property apply.
 - Stakes can't be mortgaged or traded. On bankruptcy they pass to the
   creditor; when a player leaves, their stakes return to the bank.
-- The pot is filled and paid out as the rule set's `pool` section says.
+- The pot is filled and paid out as the rule set's `pooled_squares`
+  section says.
   If a board has several pooled squares, the first one collects the pot.
 
 ### Card files

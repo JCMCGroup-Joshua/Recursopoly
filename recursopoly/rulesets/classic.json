@@ -29,9 +29,9 @@
     "max_jail_turns": 3,
     "must_lap_before_buying": false
   },
-  "pool": {
-    "pool_receives": [],
-    "pool_payout_trigger": "on_landing",
-    "pool_payout_split": "by_stake"
+  "pooled_squares": {
+    "receives": [],
+    "payout_trigger": "on_landing",
+    "payout_split": "by_stake"
   }
 }

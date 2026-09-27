@@ -299,17 +299,24 @@ def parse_board_data(data, board_id):
                      {"index": 1, "name": "Old Kent Road", "type": "property",
                       "group": "brown", "price": 60, "rent": 2, ...}, ...]}
 
+    Squares may be listed in any order, and indexes may have gaps: missing
+    positions become blank squares. The board runs from index 0 to the
+    highest index given (or to "size" - 1 if the file sets a larger "size").
     The data is copied, so each game gets its own squares to mutate.
     """
     if not isinstance(data, dict) or not isinstance(data.get("squares"), list) or not data["squares"]:
         raise ValueError(f"board {board_id}: needs a non-empty 'squares' list")
-    squares = []
+    by_index = {}
     for pos, raw in enumerate(data["squares"]):
-        where = f"board {board_id} square {pos}"
+        where = f"board {board_id} square #{pos + 1}"
         if not isinstance(raw, dict):
             raise ValueError(f"{where}: each square must be an object")
-        if raw.get("index", pos) != pos:
-            raise ValueError(f"{where}: index must be {pos} (squares are listed in order)")
+        idx = raw.get("index", pos)
+        if not isinstance(idx, int) or isinstance(idx, bool) or idx < 0:
+            raise ValueError(f"{where}: index must be a whole number of 0 or more")
+        if idx in by_index:
+            raise ValueError(f"{where}: index {idx} is used twice")
+        where = f"board {board_id} square {idx}"
         name, sq_type = raw.get("name"), raw.get("type")
         if not isinstance(name, str) or not name.strip() or not isinstance(sq_type, str) or not sq_type:
             raise ValueError(f"{where}: needs a 'name' and a 'type'")
@@ -329,8 +336,10 @@ def parse_board_data(data, board_id):
         # Game state never comes from the file.
         for key in ("stakes", "houses", "hotels", "mortgaged", "pot", "owner"):
             attrs.pop(key, None)
-        squares.append(Square(pos, name.strip(), sq_type.strip().lower(), attrs))
-    meta = {k: v for k, v in data.items() if k not in ("name", "groups", "squares")}
+        by_index[idx] = Square(idx, name.strip(), sq_type.strip().lower(), attrs)
+    size = max(max(by_index) + 1, _whole(data.get("size", 0), f"board {board_id} size"))
+    squares = [by_index.get(i) or Square(i, "", "blank", {}) for i in range(size)]
+    meta = {k: v for k, v in data.items() if k not in ("name", "groups", "squares", "size")}
     return Board(board_id, squares, name=data.get("name"), groups=data.get("groups"), attributes=meta)
 
 

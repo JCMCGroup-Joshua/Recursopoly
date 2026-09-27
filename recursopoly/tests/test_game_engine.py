@@ -71,6 +71,16 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(board.square(1).attributes["group"], "brown")
         self.assertEqual(board.groups["brown"]["colour"], "#8b4a2b")
 
+    def test_sparse_indexes_are_filled_with_blank_squares(self):
+        board = parse_board_data({"squares": [
+            {"index": 5, "name": "Station", "type": "station", "price": 200, "rent": 25},
+            {"index": 0, "name": "GO", "type": "go"},
+        ]}, 0)
+        self.assertEqual(board.size, 6)
+        self.assertEqual(board.square(5).name, "Station")
+        self.assertEqual((board.square(3).type, board.square(3).name), ("blank", ""))
+        self.assertEqual(parse_board_data({"size": 40, "squares": [{"index": 0, "name": "GO", "type": "go"}]}, 0).size, 40)
+
     def test_custom_square_types_and_validation(self):
         data = {"name": "Tiny", "squares": [
             {"index": 0, "name": "GO", "type": "go"},
@@ -81,7 +91,8 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(board.square(1).type, "castle")
         self.assertTrue(board.square(2).pooled)
         with self.assertRaises(ValueError):
-            parse_board_data({"squares": [{"index": 1, "name": "X", "type": "go"}]}, 0)
+            parse_board_data({"squares": [{"index": 0, "name": "X", "type": "go"},
+                                          {"index": 0, "name": "Y", "type": "go"}]}, 0)
         with self.assertRaises(ValueError):
             parse_board_data({"squares": [{"index": 0, "name": "P", "type": "x", "stakeholder": True}]}, 0)
         with self.assertRaises(ValueError):
@@ -95,6 +106,7 @@ class RuleSetTests(unittest.TestCase):
         self.assertEqual(amst.name, "AMST")
         self.assertEqual(amst.values["starting_money"], 2000)
         self.assertEqual(amst.values["max_hotels_per_property"], 3)
+        self.assertEqual(amst.values["pool_receives"], ["taxes", "fines"])
         self.assertTrue(amst.values["must_lap_before_buying"])
         # Left out of amst.json, so taken from classic.
         self.assertEqual(amst.values["max_jail_turns"], 3)
@@ -124,7 +136,8 @@ class RuleSetTests(unittest.TestCase):
         bad = [
             {"economy": {"starting_money": -5}},
             {"house_rules": {"must_lap_before_buying": "sometimes"}},
-            {"pool": {"pool_receives": ["everything"]}},
+            {"pooled_squares": {"receives": ["everything"]}},
+            {"pool": {"pool_receives": ["taxes"]}},  # old section name
             {"building": {"houses_before_hotel": 9}},
             {"board": "boards/missing.json"},
         ]
@@ -742,7 +755,7 @@ class AmstTests(unittest.TestCase):
         self.game.start("Alice")
         self.alice, self.bob, self.carol = (self.game.get_player(n) for n in ("Alice", "Bob", "Carol"))
         self.board = self.game.boards[0]
-        self.club = self.board.square(20)
+        self.club = self.board.square(15)
 
     def to_turn(self, name):
         self.game.current_index = self.game.players.index(self.game.get_player(name))
@@ -780,7 +793,7 @@ class AmstTests(unittest.TestCase):
             self.game.build_hotel("Alice", 0, 39)
         self.assertEqual(self.game.building_counts("Alice"), (0, 6))
 
-    def test_taxes_fines_and_fees_feed_the_pot(self):
+    def test_taxes_and_fines_feed_the_pot(self):
         self.game.roll("Alice", dice=(1, 3))  # Cover Charge 250
         self.assertEqual(self.club.pot, 250)
         self.assertEqual(self.alice.money, 1750)
@@ -792,52 +805,53 @@ class AmstTests(unittest.TestCase):
         self.carol.position = Position(0, 4)
         self.to_turn("Carol")
         self.game.roll("Carol", dice=(1, 2))  # Last Call: pay 15
-        self.assertEqual(self.club.pot, 340)
+        self.assertEqual(self.club.pot, 325)  # AMST's pot doesn't take card fees
+        self.assertEqual(self.carol.money, 1985)
 
     def test_buy_stakes_and_pay_out_by_stake(self):
         self.alice.laps = self.bob.laps = 1
-        self.alice.position = Position(0, 17)
+        self.alice.position = Position(0, 12)
         result = self.game.roll("Alice", dice=(1, 2))
         self.assertEqual(result["decision"]["type"], "buy_stake")
         self.assertEqual(result["decision"]["percent"], 25)
         self.game.decide("Alice", "buy")
-        self.assertEqual(self.alice.money, 1800)
+        self.assertEqual(self.alice.money, 1850)
         self.to_turn("Alice")
-        self.alice.position = Position(0, 17)
+        self.alice.position = Position(0, 12)
         self.game.roll("Alice", dice=(1, 2))
         self.game.decide("Alice", "buy")
         self.assertEqual(self.club.stake_of("Alice")["percent"], 50)
         self.to_turn("Bob")
-        self.bob.position = Position(0, 17)
+        self.bob.position = Position(0, 12)
         self.game.roll("Bob", dice=(1, 2))
         self.game.decide("Bob", "buy")
         self.club.attributes["pot"] = 400
         self.to_turn("Carol")
-        self.carol.position = Position(0, 17)
+        self.carol.position = Position(0, 12)
         self.game.roll("Carol", dice=(1, 2))  # Carol lands: pot pays out
-        self.assertEqual(self.alice.money, 1600 + 200)
-        self.assertEqual(self.bob.money, 1800 + 100)
+        self.assertEqual(self.alice.money, 1700 + 200)
+        self.assertEqual(self.bob.money, 1850 + 100)
         self.assertEqual(self.club.pot, 100)  # the unsold 25% stays in the pot
         self.assertEqual(self.game.pending_decision, None)  # Carol has no lap yet
         state = self.game.to_dict()
-        self.assertEqual(state["players"][0]["stakes"], [{"board_id": 0, "index": 20, "percent": 50}])
-        self.assertEqual(self.game.net_worth(self.alice), 1800 + 2 * 200)
+        self.assertEqual(state["players"][0]["stakes"], [{"board_id": 0, "index": 15, "percent": 50}])
+        self.assertEqual(self.game.net_worth(self.alice), 1900 + 2 * 150)
 
     def test_equal_split_and_stakeholder_trigger(self):
         game = make_game(players=("Alice", "Bob", "Carol"), ruleset="amst",
                          pool_payout_split="equal", pool_payout_trigger="on_stakeholder_landing")
         game.start("Alice")
-        club = game.boards[0].square(20)
+        club = game.boards[0].square(15)
         game._add_shares(club, "Alice", 3)
         game._add_shares(club, "Bob", 1)
         club.attributes["pot"] = 101
         carol = game.get_player("Carol")
-        carol.position = Position(0, 17)
+        carol.position = Position(0, 12)
         game.current_index = 2
         game.roll("Carol", dice=(1, 2))
         self.assertEqual(club.pot, 101)  # Carol holds no stake: no payout
         alice = game.get_player("Alice")
-        alice.position = Position(0, 17)
+        alice.position = Position(0, 12)
         game.current_index = 0
         game.turn_state = TurnState.WAITING_TO_ROLL
         game.roll("Alice", dice=(1, 2))
@@ -858,7 +872,7 @@ class AmstTests(unittest.TestCase):
     def test_stakes_cannot_be_traded(self):
         self.game._add_shares(self.club, "Alice", 1)
         with self.assertRaises(GameError):
-            self.game.propose_trade("Alice", "Bob", give_squares=[[0, 20]])
+            self.game.propose_trade("Alice", "Bob", give_squares=[[0, 15]])
 
     def test_summary_and_state(self):
         state = self.game.to_dict()
@@ -868,7 +882,9 @@ class AmstTests(unittest.TestCase):
         self.assertEqual(labels["Hotels per property"], "3")
         self.assertEqual(labels["Lap before buying"], "Yes")
         self.assertIn("The Strip Club", labels)
-        self.assertEqual(state["boards"]["0"]["groups"]["dive_bars"]["name"], "Dive Bars")
+        self.assertEqual(state["boards"]["0"]["groups"]["red"]["name"], "Red")
+        self.assertEqual(self.board.square(1).name, "The Velvet Lounge")
+        self.assertEqual(self.board.square(20).type, "free")
 
 
 if __name__ == "__main__":

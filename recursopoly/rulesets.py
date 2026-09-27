@@ -12,7 +12,7 @@ grouped into sections:
       "economy":     {"starting_money": 2000, ...},
       "building":    {"max_hotels_per_property": 3, ...},
       "house_rules": {"must_lap_before_buying": true, ...},
-      "pool":        {"pool_receives": ["taxes", "fines"], ...}
+      "pooled_squares": {"receives": ["taxes", "fines"], "payout_trigger": ...}
     }
 
 rulesets/classic.json is the base: any section or value another rule set
@@ -31,7 +31,11 @@ from dataclasses import dataclass, field
 from game_engine import parse_board_data, parse_cards_text
 
 BASE_RULESET = "classic"
-SECTIONS = ("players", "economy", "building", "house_rules", "pool")
+SECTIONS = ("players", "economy", "building", "house_rules", "pooled_squares")
+TOP_LEVEL_KEYS = {"name", "description", "board", "cards", *SECTIONS}
+# Keys in these sections get a prefix when flattened, so the engine reads
+# e.g. pooled_squares.receives as "pool_receives".
+KEY_PREFIX = {"pooled_squares": "pool_"}
 
 # Every value the game engine reads. classic.json must define them all.
 REQUIRED_VALUES = (
@@ -105,32 +109,43 @@ def _flatten(merged):
     flat = {}
     for section in SECTIONS:
         for key, value in merged[section].items():
+            key = KEY_PREFIX.get(section, "") + key
             if key in flat:
                 raise ValueError(f"value '{key}' appears in more than one section")
             flat[key] = value
     return flat
 
 
+def _label(flat_key):
+    """How a flattened key is written in the rule set file."""
+    for section, prefix in KEY_PREFIX.items():
+        if flat_key.startswith(prefix):
+            return f"{section}.{flat_key[len(prefix):]}"
+    return flat_key
+
+
 def _validate(flat, board, required, where):
     missing = sorted(set(required) - set(flat))
     if missing:
-        raise ValueError(f"{where}: missing values {', '.join(missing)}")
+        raise ValueError(f"{where}: missing values {', '.join(_label(k) for k in missing)}")
     for key in required:
         if key == "must_lap_before_buying":
             if not isinstance(flat[key], bool):
                 raise ValueError(f"{where}: {key} must be true or false")
         elif key == "pool_receives":
             if not isinstance(flat[key], list) or not set(flat[key]) <= POOL_CATEGORIES:
-                raise ValueError(f"{where}: pool_receives must be a list drawn from "
+                raise ValueError(f"{where}: pooled_squares.receives must be a list drawn from "
                                  f"{sorted(POOL_CATEGORIES)}")
         elif key == "pool_payout_trigger":
             if flat[key] not in POOL_TRIGGERS:
-                raise ValueError(f"{where}: pool_payout_trigger must be one of {sorted(POOL_TRIGGERS)}")
+                raise ValueError(f"{where}: pooled_squares.payout_trigger must be one of "
+                                 f"{sorted(POOL_TRIGGERS)}")
         elif key == "pool_payout_split":
             if flat[key] not in POOL_SPLITS:
-                raise ValueError(f"{where}: pool_payout_split must be one of {sorted(POOL_SPLITS)}")
+                raise ValueError(f"{where}: pooled_squares.payout_split must be one of "
+                                 f"{sorted(POOL_SPLITS)}")
         elif not isinstance(flat[key], int) or isinstance(flat[key], bool) or flat[key] < 0:
-            raise ValueError(f"{where}: {key} must be a whole number of 0 or more")
+            raise ValueError(f"{where}: {_label(key)} must be a whole number of 0 or more")
     if flat["min_players"] < 1 or flat["max_players"] < flat["min_players"]:
         raise ValueError(f"{where}: need 1 <= min_players <= max_players")
     if flat["houses_before_hotel"] > flat["max_houses_per_property"]:
@@ -148,6 +163,10 @@ def load_ruleset(path, root, base=None):
     data = _read_json(path)
     if not isinstance(data, dict):
         raise ValueError(f"{path}: a rule set must be a JSON object")
+    unknown = sorted(set(data) - TOP_LEVEL_KEYS)
+    if unknown:
+        raise ValueError(f"{path}: unknown key(s) {', '.join(unknown)}; "
+                         f"expected {', '.join(sorted(TOP_LEVEL_KEYS))}")
     merged = _merge(base or {}, data)
     if not merged["board"]:
         raise ValueError(f"{path}: no 'board' given")

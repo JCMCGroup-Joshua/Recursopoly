@@ -292,6 +292,8 @@
         jail: "\u2593",
         go_to_jail: "\u2192",
         free_parking: "P",
+        free: "P",
+        pooled: "\u{1F4B0}",
         go: "\u2190"
     };
 

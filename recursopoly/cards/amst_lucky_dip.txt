@@ -6,7 +6,7 @@ The bar till was short in your favour. Collect £250 | collect | amount=250
 Taxi home after a big night. Pay £60 | pay | amount=60
 Your cocktail recipe goes viral. Collect £60 | collect | amount=60
 VIP wristband. Get Out of Jail Free | get_out_of_jail_free
-Busted after hours. Go straight to the Drunk Tank | go_to_jail
+Busted after hours. Go straight to Jail | go_to_jail
 Tips jar is full. Collect £120 | collect | amount=120
 Bottle deposit refund. Collect £25 | collect | amount=25
 It's your birthday! Collect £15 from each player | collect_from_each | amount=15
