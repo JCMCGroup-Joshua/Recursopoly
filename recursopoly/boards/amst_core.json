@@ -1,0 +1,22 @@
+{
+  "name": "The Inner Sanctum",
+  "go_salary": 450,
+  "groups": {
+    "red_room": {"name": "Red Room", "colour": "#8e0038"},
+    "black_card": {"name": "Black Card", "colour": "#212121"}
+  },
+  "squares": [
+    {"index": 0, "name": "GO", "type": "go"},
+    {"index": 1, "name": "The Red Room", "type": "property", "group": "red_room", "price": 600, "rent": 80, "house_rents": [400, 1200, 3200, 4000], "hotel_rents": [4800, 6720, 8640], "house_cost": 300, "hotel_cost": 350},
+    {"index": 2, "name": "Midnight Express", "type": "station", "price": 400, "rents": [60, 120, 240, 480]},
+    {"index": 3, "name": "Jail / Just Visiting", "type": "jail"},
+    {"index": 4, "name": "Diamond Suite", "type": "property", "group": "red_room", "price": 650, "rent": 90, "house_rents": [450, 1350, 3600, 4500], "hotel_rents": [5400, 7555, 9720], "house_cost": 300, "hotel_cost": 350},
+    {"index": 5, "name": "Velvet Tax", "type": "tax", "amount": 400},
+    {"index": 6, "name": "The Platinum Club", "type": "pooled", "icon": "💎", "stakeholder": true, "max_stakes": 4, "buy_in": 400},
+    {"index": 7, "name": "Black Card Lounge", "type": "property", "group": "black_card", "price": 700, "rent": 100, "house_rents": [500, 1500, 4000, 5000], "hotel_rents": [6000, 8400, 10800], "house_cost": 350, "hotel_cost": 400},
+    {"index": 8, "name": "Last Call", "type": "chance"},
+    {"index": 9, "name": "Busted!", "type": "go_to_jail"},
+    {"index": 10, "name": "The Owner's Box", "type": "property", "group": "black_card", "price": 750, "rent": 110, "house_rents": [550, 1650, 4400, 5500], "hotel_rents": [6600, 9240, 11880], "house_cost": 350, "hotel_cost": 400},
+    {"index": 11, "name": "The Sanctum", "type": "property", "group": "black_card", "price": 800, "rent": 130, "house_rents": [650, 1950, 5200, 6500], "hotel_rents": [7800, 10920, 14040], "house_cost": 350, "hotel_cost": 400}
+  ]
+}

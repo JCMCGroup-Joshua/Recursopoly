@@ -36,6 +36,7 @@
     "sell_back_percent": 50
   },
   "travel": {
-    "ticket_prices": []
+    "ticket_prices": [],
+    "choose_destination": true
   }
 }

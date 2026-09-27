@@ -1082,8 +1082,12 @@ class Game:
 
     def _offer_travel(self, player, doubles):
         """Offer a train ticket if the player is on a station. Returns True if
-        the turn now waits for their choice."""
+        the turn now waits for their choice. With choose_destination off the
+        ticket is bought automatically instead (see _auto_travel)."""
         if player.debts or player.in_jail:
+            return False
+        if not self._rule("choose_destination"):
+            self._auto_travel(player)
             return False
         options = [o for o in self.travel_options(player) if o["price"] <= player.money]
         if not options:
@@ -1099,6 +1103,45 @@ class Game:
         self.turn_state = TurnState.AWAITING_DECISION
         return True
 
+    def next_board_id(self, board_id):
+        """Automatic tickets go one board inward; from the innermost board
+        they go back to the outer board."""
+        ids = sorted(self.boards)
+        pos = ids.index(board_id)
+        return ids[pos + 1] if pos + 1 < len(ids) else ids[0]
+
+    def _matching_station(self, from_square, from_board, to_board):
+        """The station on ``to_board`` in the position closest to where
+        ``from_square`` sits on its own board (measured round the loop)."""
+        where = from_square.index / from_board.size
+        stations = [sq for sq in to_board.squares if sq.type == "station"]
+
+        def distance(sq):
+            d = abs(sq.index / to_board.size - where)
+            return min(d, 1 - d)
+        return min(stations, key=lambda sq: (distance(sq), sq.index)) if stations else None
+
+    def _auto_travel(self, player):
+        """Automatic tickets: landing on a station always takes the player one
+        board inward (or from the innermost board back to the outer board),
+        paying that board's fare. A player who can't afford it stays put."""
+        here = self.square_at(player.position)
+        if len(self.boards) < 2 or here.type != "station":
+            return
+        from_board = self.board_for(player)
+        dest_board = self.boards[self.next_board_id(from_board.board_id)]
+        dest = self._matching_station(here, from_board, dest_board)
+        price = self.ticket_price(dest_board.board_id)
+        if dest is None or price is None:
+            return
+        if player.money < price:
+            self._say(f"{player.name} can't afford the {money(price)} ticket to {dest_board.name}, "
+                      f"so stays on {here.name}.")
+            return
+        self._ride_train(player, {"board_id": dest_board.board_id, "index": dest.index,
+                                  "name": dest.name, "board": dest_board.name, "price": price},
+                         automatic=True)
+
     def _travel(self, player, choice, options):
         """Buy a ticket and move to the chosen station. Arriving has no landing
         effects; the player's next roll continues on the new board."""
@@ -1112,17 +1155,23 @@ class Game:
             raise GameError("bad_choice", "You can't travel there from here.")
         if player.money < option["price"]:
             raise GameError("cant_afford", f"You need {money(option['price'])} for that ticket.")
+        self._ride_train(player, option)
+
+    def _ride_train(self, player, option, automatic=False):
+        """Pay the fare and move to the destination station."""
         origin = self.square_at(player.position)
         from_board = self.board_for(player)
         player.money -= option["price"]
-        player.position = Position(board_id, index)
+        player.position = Position(option["board_id"], option["index"])
         player.attributes["journeys"] = player.attributes.get("journeys", 0) + 1
-        self._say(f"{player.name} bought a {money(option['price'])} ticket from {origin.name} to "
+        how = "took the train" if automatic else "bought a ticket"
+        self._say(f"{player.name} {how} ({money(option['price'])}) from {origin.name} to "
                   f"{option['name']} on {option['board']}.")
         self._event("ticket_purchased", player,
-                    details=f"from={origin.name}; to={option['name']}; price={option['price']}")
+                    details=f"from={origin.name}; to={option['name']}; price={option['price']}; "
+                            f"automatic={'yes' if automatic else 'no'}")
         self._event("board_changed", player,
-                    details=f"from_board={from_board.board_id}; to_board={board_id}")
+                    details=f"from_board={from_board.board_id}; to_board={option['board_id']}")
 
     # -- jail --------------------------------------------------------------
 
@@ -2181,6 +2230,8 @@ class Game:
                 for _, b in sorted(self.boards.items()))))
             rows.append(("Train tickets", ", ".join(
                 f"{money(self.ticket_price(bid))} to {b.name}" for bid, b in sorted(self.boards.items()))))
+            rows.append(("Travel", "Choose any station on another board" if r("choose_destination") else
+                         "Automatic: stations take you one board inward, and back out from the centre"))
         pools = [sq for board in self.boards.values() for sq in board.pools()]
         for sq in pools:
             feeds = ", ".join(r("pool_receives")) or "nothing"
@@ -2238,6 +2289,7 @@ class Game:
                 "houses_before_hotel": self._rule("houses_before_hotel"),
                 "must_lap_before_buying": self._rule("must_lap_before_buying"),
                 "ticket_prices": self._rule("ticket_prices"),
+                "choose_destination": self._rule("choose_destination"),
             },
             "winner": self.winner,
             "standings": [

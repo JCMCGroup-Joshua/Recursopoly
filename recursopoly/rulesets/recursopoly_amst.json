@@ -1,0 +1,41 @@
+{
+  "name": "Recursopoly AMST",
+  "description": "AMST rules on three nested boards: the AMST board outside, The VIP Ring inside it and The Inner Sanctum at the centre, each with its own pooled club. Stations take you between boards.",
+  "boards": [
+    "boards/amst_board.json",
+    "boards/amst_middle.json",
+    "boards/amst_core.json"
+  ],
+  "cards": {
+    "chance": "cards/amst_last_call.txt",
+    "community_chest": "cards/amst_lucky_dip.txt"
+  },
+
+  "economy": {
+    "starting_money": 2000,
+    "go_salary": 250,
+    "jail_fine": 75
+  },
+
+  "building": {
+    "max_houses_per_property": 4,
+    "max_hotels_per_property": 3,
+    "houses_before_hotel": 4
+  },
+
+  "house_rules": {
+    "doubles_before_jail": 3,
+    "must_lap_before_buying": true
+  },
+
+  "pooled_squares": {
+    "receives": ["taxes", "fines"],
+    "payout_trigger": "on_landing",
+    "payout_split": "by_stake"
+  },
+
+  "travel": {
+    "ticket_prices": [75, 200, 400],
+    "choose_destination": true
+  }
+}
