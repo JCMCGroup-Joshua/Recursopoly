@@ -11,6 +11,7 @@
 
     var page = document.body.dataset.page;
     var pageCode = document.body.dataset.joinCode || null;
+    var spectator = document.body.dataset.spectator === "1";  // watching, no seat
     var socket = io();
 
     // ---- Seat credentials ----------------------------------------------
@@ -120,6 +121,15 @@
             goTo(info.status, info.join_code);
         });
 
+        // Watch a game as a spectator: only the code is needed.
+        $("watch-btn").addEventListener("click", function () {
+            var code = $("join-code").value.trim().toUpperCase();
+            if (!code) { showError("Enter the join code of the game to watch."); return; }
+            var name = $("join-name").value.trim();
+            window.location.href = "/watch/" + encodeURIComponent(code) +
+                (name ? "?name=" + encodeURIComponent(name) : "");
+        });
+
         socket.on("error_message", function (err) { showError(err.message); });
     }
 
@@ -128,6 +138,72 @@
     // =====================================================================
 
     var me = null;  // {name, token}
+
+    // ---- Chat ---------------------------------------------------------------
+
+    function chatLine(msg) {
+        var li = el("li", "chat-line" + (msg.spectator ? " is-spectator" : ""));
+        var who = el("span", "chat-name", msg.name + (msg.spectator ? " (watching)" : ""));
+        if (!msg.spectator && isMe(msg.name)) li.classList.add("is-me");
+        li.appendChild(who);
+        li.appendChild(el("span", "chat-text", msg.text));
+        return li;
+    }
+
+    function initChat() {
+        var log = $("chat-log");
+        if (!log) return;
+        function scroll() { log.scrollTop = log.scrollHeight; }
+        socket.on("chat_history", function (messages) {
+            log.replaceChildren();
+            messages.forEach(function (m) { log.appendChild(chatLine(m)); });
+            scroll();
+        });
+        socket.on("chat_message", function (m) {
+            log.appendChild(chatLine(m));
+            while (log.children.length > 100) log.removeChild(log.firstChild);
+            scroll();
+        });
+        $("chat-form").addEventListener("submit", function (ev) {
+            ev.preventDefault();
+            var input = $("chat-input");
+            var text = input.value.trim();
+            if (!text) return;
+            socket.emit("chat", { text: text });
+            input.value = "";
+        });
+    }
+
+    // "2 watching", with the spectators' names on hover.
+    function renderWatchers(state) {
+        var box = $("watchers");
+        if (!box) return;
+        var names = state.spectators || [];
+        box.hidden = !names.length;
+        box.textContent = "\u{1F440} " + names.length + " watching";
+        box.title = names.join(", ");
+    }
+
+    // Spectators: join the room by code only, no seat and no controls.
+    function initWatch(onState) {
+        me = null;
+        document.body.classList.add("is-spectator");
+        var name = document.body.dataset.watchName || "";
+        socket.on("connect", function () {
+            socket.emit("spectate", { code: pageCode, name: name });
+        });
+        socket.on("game_state", onState);
+        socket.on("error_message", function (err) {
+            if (err.code === "bad_code") showFatal(err.message);
+            else showError(err.message);
+        });
+        socket.on("disconnect", function () {
+            showError("Connection lost. Trying to reconnect\u2026");
+        });
+        $("leave-btn").textContent = "Stop watching";
+        $("leave-btn").addEventListener("click", function () { window.location.href = "/"; });
+        initChat();
+    }
 
     function initSeat(onState) {
         me = loadCreds(pageCode);
@@ -180,6 +256,7 @@
                 if (confirm("End the game for everyone?")) socket.emit("end_game");
             });
         }
+        initChat();
     }
 
     // Name, description and key values of the game's rule set.
@@ -240,6 +317,7 @@
         initSeat(function (state) {
             if (state.status === "in_progress") { goTo("game", state.join_code); return; }
             renderRuleset(state);
+            renderWatchers(state);
 
             var list = $("lobby-players");
             list.replaceChildren();
@@ -583,6 +661,8 @@
         } else if (decision && decision.type === "travel") {
             indicator.textContent = state.current_player + " is deciding whether to take the train from " +
                 decision.from;
+        } else if (state.status === "lobby") {
+            indicator.textContent = "Waiting for " + state.host + " to start the game\u2026";
         } else if (state.current_player) {
             indicator.textContent = state.current_player + "'s turn";
         } else {
@@ -920,8 +1000,9 @@
         $("use-card-btn").addEventListener("click", function () { socket.emit("use_jail_card"); });
         initTrades();
 
-        initSeat(function (state) {
-            if (state.status === "lobby") { goTo("lobby", state.join_code); return; }
+        (spectator ? initWatch : initSeat)(function (state) {
+            // Players wait in the lobby; spectators watch the board fill up.
+            if (state.status === "lobby" && !spectator) { goTo("lobby", state.join_code); return; }
             latestState = state;
 
             // Every board, nested: the outer board holds the next one in its centre.
@@ -934,6 +1015,7 @@
                 boardBuiltFor = signature;
             }
             renderRuleset(state);
+            renderWatchers(state);
             renderOwnership(state);
             renderTokens(state);
             renderCard(state);
@@ -944,6 +1026,7 @@
             renderPlayers(state);
             renderLog(state);
             $("end-btn").hidden = !isMe(state.host) || state.status !== "in_progress";
+            if (spectator) $("leave-btn").hidden = false;
             renderGameOver(state);
         });
     }

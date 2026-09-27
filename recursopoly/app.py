@@ -10,6 +10,7 @@ Run with:  python app.py
 
 import logging
 import threading
+import time
 from datetime import datetime
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
@@ -48,6 +49,15 @@ games = {}
 sessions = {}
 # (join_code, player_name) -> the player's most recent socket id.
 seat_sids = {}
+# Spectators: socket id -> (join_code, display name). They see everything
+# but hold no seat, so every game action from them is refused.
+spectator_sids = {}
+# Chat per game: join_code -> recent messages. In memory only, like games.
+chats = {}
+CHAT_HISTORY = 100
+CHAT_MAX_LENGTH = 200
+CHAT_MIN_INTERVAL = 0.5  # seconds between messages from one socket
+last_chat_at = {}  # socket id -> time of its last chat message
 # One lock guards `games`, `sessions` and every Game object. Socket handlers
 # run on separate threads in threading mode.
 state_lock = threading.RLock()
@@ -147,7 +157,18 @@ def game_page(code):
     with state_lock:
         if code not in games:
             return redirect(url_for("index", error=f"No Recursopoly game with code {code}."))
-    return render_template("game.html", join_code=code)
+    return render_template("game.html", join_code=code, spectator=False, watch_name="")
+
+
+@app.route("/watch/<code>")
+def watch_page(code):
+    """Spectator view: the game page with no seat and no controls."""
+    code = normalise_join_code(code)
+    with state_lock:
+        if code not in games:
+            return redirect(url_for("index", error=f"No Recursopoly game with code {code}."))
+    return render_template("game.html", join_code=code, spectator=True,
+                           watch_name=(request.args.get("name") or "").strip()[:20])
 
 
 @app.route("/api/game/<code>")
@@ -169,7 +190,9 @@ def broadcast_state(game):
     """Send the full game state to everyone in the game's room, and flush any
     queued score-log events."""
     score_logger.log_events(game.join_code, game.drain_events())
-    socketio.emit("game_state", game.to_dict(), to=game.join_code)
+    state = game.to_dict()
+    state["spectators"] = sorted(name for code, name in spectator_sids.values() if code == game.join_code)
+    socketio.emit("game_state", state, to=game.join_code)
 
 
 def send_error(message, code="error"):
@@ -201,6 +224,7 @@ def seat_socket(game, player, rejoined):
         "rejoined": rejoined,
         "status": game.status,
     })
+    emit("chat_history", chats.get(game.join_code, []))
 
 
 def schedule_disconnect_check(code, name, delay):
@@ -222,6 +246,7 @@ def cleanup_if_abandoned(game):
     if not any(p.connected for p in game.players):
         if game.status == GameStatus.ENDED or not game.players:
             games.pop(game.join_code, None)
+            chats.pop(game.join_code, None)
             for key in [k for k in seat_sids if k[0] == game.join_code]:
                 del seat_sids[key]
             log.info("Recursopoly game %s removed", game.join_code)
@@ -434,9 +459,55 @@ def on_leave_game(_data=None):
         cleanup_if_abandoned(game)
 
 
+@socketio.on("spectate")
+def on_spectate(data):
+    """{"code", "name" (optional)}: watch a game without taking a seat."""
+    data = data or {}
+    code = normalise_join_code(data.get("code"))
+    name = " ".join((data.get("name") or "").split())[:20] or "Spectator"
+    with state_lock:
+        game = games.get(code)
+        if game is None:
+            return send_error(f"No Recursopoly game found with code '{code}'.", "bad_code")
+        spectator_sids[request.sid] = (code, name)
+        join_room(code)
+        emit("watching", {"join_code": code, "name": name})
+        emit("chat_history", chats.get(code, []))
+        broadcast_state(game)
+
+
+@socketio.on("chat")
+def on_chat(data):
+    """{"text"}: a chat message from a player or spectator in the room."""
+    text = " ".join(str((data or {}).get("text") or "").split())[:CHAT_MAX_LENGTH]
+    if not text:
+        return
+    now = time.time()
+    if now - last_chat_at.get(request.sid, 0) < CHAT_MIN_INTERVAL:
+        return send_error("You're sending messages too quickly.", "slow_down")
+    with state_lock:
+        game, name = current_session()
+        spectator = False
+        if game is None and request.sid in spectator_sids:
+            code, name = spectator_sids[request.sid]
+            game, spectator = games.get(code), True
+        if game is None:
+            return send_error("You are not in a game.", "no_session")
+        last_chat_at[request.sid] = now
+        message = {"time": now, "name": name, "text": text, "spectator": spectator}
+        history = chats.setdefault(game.join_code, [])
+        history.append(message)
+        del history[:-CHAT_HISTORY]
+        socketio.emit("chat_message", message, to=game.join_code)
+
+
 @socketio.on("disconnect")
 def on_disconnect(*_args):
     with state_lock:
+        last_chat_at.pop(request.sid, None)
+        watching = spectator_sids.pop(request.sid, None)
+        if watching and watching[0] in games:
+            broadcast_state(games[watching[0]])
         info = sessions.pop(request.sid, None)
         if not info:
             return

@@ -36,14 +36,18 @@
 
         <section class="card">
             <h2>Join with code</h2>
-            <p>Got a join code? Enter it with your name. Use the same name to rejoin after a disconnect.</p>
+            <p>Got a join code? Enter it with your name to play. Use the same name to rejoin after a disconnect.</p>
             <form id="join-form" autocomplete="off">
                 <label for="join-code">Join code</label>
                 <input id="join-code" name="code" maxlength="12" required placeholder="e.g. K7QX2M"
                        class="code-input">
                 <label for="join-name">Your name</label>
-                <input id="join-name" name="name" maxlength="20" required placeholder="e.g. Bob">
-                <button type="submit" class="btn btn-primary">Join game</button>
+                <input id="join-name" name="name" maxlength="20" placeholder="e.g. Bob">
+                <div class="join-actions">
+                    <button type="submit" class="btn btn-primary">Join game</button>
+                    <button type="button" class="btn" id="watch-btn">Watch</button>
+                </div>
+                <p class="muted small">Watch a game as a spectator: only the join code is needed.</p>
             </form>
         </section>
     </main>

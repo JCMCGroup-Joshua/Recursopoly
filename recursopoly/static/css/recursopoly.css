@@ -711,3 +711,43 @@ details.ruleset-card > summary::after { content: " \25BE"; color: var(--muted); 
 .inline-form input { flex: 1; }
 .history-search { display: grid; gap: 6px; }
 .inline-form .btn { margin-top: 0; }
+
+/* ---- Spectators and chat (Phase 6) --------------------------------------- */
+
+.join-actions { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
+
+.watchers { font-size: 0.8rem; font-weight: 600; color: var(--muted); margin-right: 6px; }
+.tag-watching { background: #e3eef8; color: #1c5d99; margin-right: 6px; }
+
+/* Spectators see everything but get no controls. */
+.is-spectator #roll-btn,
+.is-spectator #decision,
+.is-spectator #debt,
+.is-spectator #travel,
+.is-spectator #jail-actions,
+.is-spectator #my-props-card,
+.is-spectator #propose-trade-btn,
+.is-spectator #end-btn { display: none !important; }
+
+.chat-card { display: flex; flex-direction: column; }
+
+.chat-log {
+    list-style: none;
+    margin: 0 0 8px;
+    padding: 0;
+    max-height: 220px;
+    min-height: 60px;
+    overflow-y: auto;
+    font-size: 0.9rem;
+    display: grid;
+    gap: 3px;
+    align-content: start;
+}
+
+.chat-line { overflow-wrap: anywhere; }
+.chat-name { font-weight: 700; margin-right: 6px; }
+.chat-line.is-me .chat-name { color: var(--good); }
+.chat-line.is-spectator .chat-name { color: #1c5d99; }
+.chat-form { display: flex; gap: 6px; }
+.chat-form input { flex: 1; min-width: 0; }
+.chat-form .btn { margin-top: 0; }
