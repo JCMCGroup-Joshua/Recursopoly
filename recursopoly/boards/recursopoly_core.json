@@ -1,0 +1,22 @@
+{
+  "name": "The Core",
+  "go_salary": 400,
+  "groups": {
+    "core": {"name": "Core", "colour": "#6a1b9a"},
+    "nucleus": {"name": "Nucleus", "colour": "#212121"}
+  },
+  "squares": [
+    {"index": 0, "name": "GO", "type": "go"},
+    {"index": 1, "name": "Core Plaza", "type": "property", "group": "core", "price": 600, "rent": 80, "house_rents": [400, 1200, 3200, 4000], "hotel_rents": [4800], "house_cost": 300, "hotel_cost": 300},
+    {"index": 2, "name": "Core Terminal", "type": "station", "price": 400, "rents": [60, 120, 240, 480]},
+    {"index": 3, "name": "Jail / Just Visiting", "type": "jail"},
+    {"index": 4, "name": "Quantum Quarter", "type": "property", "group": "core", "price": 650, "rent": 90, "house_rents": [450, 1350, 3600, 4500], "hotel_rents": [5400], "house_cost": 300, "hotel_cost": 300},
+    {"index": 5, "name": "Core Tax", "type": "tax", "amount": 400},
+    {"index": 6, "name": "Free Parking", "type": "free_parking"},
+    {"index": 7, "name": "Singularity Spire", "type": "property", "group": "nucleus", "price": 700, "rent": 100, "house_rents": [500, 1500, 4000, 5000], "hotel_rents": [6000], "house_cost": 350, "hotel_cost": 350},
+    {"index": 8, "name": "Chance", "type": "chance"},
+    {"index": 9, "name": "Go To Jail", "type": "go_to_jail"},
+    {"index": 10, "name": "Recursion Row", "type": "property", "group": "nucleus", "price": 750, "rent": 110, "house_rents": [550, 1650, 4400, 5500], "hotel_rents": [6600], "house_cost": 350, "hotel_cost": 350},
+    {"index": 11, "name": "The Nucleus", "type": "property", "group": "nucleus", "price": 800, "rent": 130, "house_rents": [650, 1950, 5200, 6500], "hotel_rents": [7800], "house_cost": 350, "hotel_cost": 350}
+  ]
+}
