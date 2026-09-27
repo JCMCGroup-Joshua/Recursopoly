@@ -99,6 +99,43 @@ class BoardTests(unittest.TestCase):
             parse_board_data({"squares": [{"index": 0, "name": "P", "type": "property", "price": "cheap"}]}, 0)
 
 
+class RuleSetEditingTests(unittest.TestCase):
+    """rulesets.py helpers used by the web rule editors."""
+
+    def test_coerce_and_validate(self):
+        from rulesets import coerce_values, validate_values
+        values = coerce_values({"starting_money": "900", "choose_destination": "false",
+                                "ticket_prices": "10, 20", "pool_receives": ["fines", "taxes"]})
+        self.assertEqual(values, {"starting_money": 900, "choose_destination": False,
+                                  "ticket_prices": [10, 20], "pool_receives": ["taxes", "fines"]})
+        for bad in ({"starting_money": "lots"}, {"pool_payout_split": "random"},
+                    {"doubles_before_jail": "0"}, {"board": "x"}):
+            with self.assertRaises(ValueError, msg=bad):
+                coerce_values(bad)
+        full = {**RULESETS["classic"].values, "houses_before_hotel": 9}
+        with self.assertRaises(ValueError):
+            validate_values(full, 1)
+        with self.assertRaises(ValueError):
+            validate_values(RULESETS["classic"].values, 3)  # no fares for 3 boards
+
+    def test_save_writes_only_differences(self):
+        from rulesets import ruleset_file_data, save_ruleset
+        amst = RULESETS["amst"]
+        data = ruleset_file_data("Mine", "Test", amst.board_paths, amst.card_paths,
+                                 {**amst.values, "go_salary": 999}, RULESETS["classic"].values)
+        self.assertEqual(data["economy"], {"starting_money": 2000, "go_salary": 999, "jail_fine": 75})
+        self.assertNotIn("players", data)
+        base = json.load(open(os.path.join(ROOT, "rulesets", "classic.json"), encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                save_ruleset(tmp, "../evil", data)
+            path = save_ruleset(tmp, "mine", data)
+            loaded = load_ruleset(path, ROOT, base=base)
+            self.assertEqual(loaded.values["go_salary"], 999)
+            self.assertEqual(loaded.values["max_hotels_per_property"], 3)
+            self.assertEqual(loaded.values["min_players"], 2)
+
+
 class RuleSetTests(unittest.TestCase):
     def test_classic_and_amst_load(self):
         self.assertEqual(list(RULESETS)[0], "classic")
@@ -1160,6 +1197,33 @@ class RecursopolyAmstTests(unittest.TestCase):
         self.assertEqual(self.alice.position, Position(1, 5))  # VIP Shuttle
         self.assertEqual(self.alice.money, 2000 - 25 - 200)
         self.assertIsNone(self.game.pending_decision)
+
+
+class LobbyRuleEditTests(unittest.TestCase):
+    """The host can change a game's rules in the lobby (no files change)."""
+
+    def setUp(self):
+        self.game = make_game(players=("Alice", "Bob"))
+
+    def test_host_changes_rules_before_start(self):
+        values = {**self.game.rules, "starting_money": 3000, "max_hotels_per_property": 2}
+        changed = self.game.set_rules("Alice", values, turn_timer=45)
+        self.assertEqual(set(changed), {"starting_money", "max_hotels_per_property", "turn_timer"})
+        self.assertEqual([p.money for p in self.game.players], [3000, 3000])
+        self.assertEqual(self.game.turn_timer, 45)
+        self.assertEqual(self.game.to_dict()["ruleset"]["changed"], ["max_hotels_per_property", "starting_money"])
+        self.assertEqual(RULESETS["classic"].values["starting_money"], 1500)  # the rule set is untouched
+        self.game.start("Alice")
+        self.assertIn("custom_rules=yes", self.game.drain_events()[0].details)
+
+    def test_only_host_and_only_in_lobby(self):
+        with self.assertRaises(GameError):
+            self.game.set_rules("Bob", dict(self.game.rules))
+        with self.assertRaises(GameError):
+            self.game.set_rules("Alice", {**self.game.rules, "max_players": 1, "min_players": 1})
+        self.game.start("Alice")
+        with self.assertRaises(GameError):
+            self.game.set_rules("Alice", dict(self.game.rules))
 
 
 if __name__ == "__main__":

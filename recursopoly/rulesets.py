@@ -28,6 +28,7 @@ reads files; game_engine stays free of file access.
 import copy
 import json
 import os
+import re
 from dataclasses import dataclass, field
 
 from game_engine import parse_board_data, parse_cards_text
@@ -50,6 +51,43 @@ REQUIRED_VALUES = (
     "ticket_prices", "choose_destination",
 )
 
+# Every editable value, for the web forms (lobby rule editor and settings
+# page): flat key, section and key in the file, label, type and options.
+FIELDS = (
+    {"key": "min_players", "section": "players", "label": "Minimum players", "type": "int", "min": 1},
+    {"key": "max_players", "section": "players", "label": "Maximum players", "type": "int", "min": 1},
+    {"key": "starting_money", "section": "economy", "label": "Starting money (\u00a3)", "type": "int"},
+    {"key": "go_salary", "section": "economy", "label": "Go salary (\u00a3)", "type": "int"},
+    {"key": "jail_fine", "section": "economy", "label": "Jail fine (\u00a3)", "type": "int"},
+    {"key": "full_group_rent_multiplier", "section": "economy",
+     "label": "Rent multiplier for a full colour group", "type": "int"},
+    {"key": "house_sell_percent", "section": "economy", "label": "Building sell-back (%)", "type": "int"},
+    {"key": "mortgage_percent", "section": "economy", "label": "Mortgage value (% of price)", "type": "int"},
+    {"key": "unmortgage_interest_percent", "section": "economy", "label": "Unmortgage interest (%)", "type": "int"},
+    {"key": "max_houses_per_property", "section": "building", "label": "Most houses per property", "type": "int"},
+    {"key": "houses_before_hotel", "section": "building", "label": "Houses needed before a hotel", "type": "int"},
+    {"key": "max_hotels_per_property", "section": "building", "label": "Most hotels per property", "type": "int"},
+    {"key": "doubles_before_jail", "section": "house_rules", "label": "Doubles in a row before jail",
+     "type": "int", "min": 1},
+    {"key": "max_jail_turns", "section": "house_rules", "label": "Tries at doubles before the fine",
+     "type": "int", "min": 1},
+    {"key": "must_lap_before_buying", "section": "house_rules", "label": "Must pass Go once before buying",
+     "type": "bool"},
+    {"key": "pool_receives", "section": "pooled_squares", "name": "receives",
+     "label": "Pooled squares collect", "type": "multi", "options": ["taxes", "fines", "fees"]},
+    {"key": "pool_payout_trigger", "section": "pooled_squares", "name": "payout_trigger",
+     "label": "Pot pays out", "type": "choice", "options": ["on_landing", "on_stakeholder_landing"]},
+    {"key": "pool_payout_split", "section": "pooled_squares", "name": "payout_split",
+     "label": "Pot is split", "type": "choice", "options": ["by_stake", "equal"]},
+    {"key": "pool_sell_back_percent", "section": "pooled_squares", "name": "sell_back_percent",
+     "label": "Stake sell-back (% of buy-in)", "type": "int"},
+    {"key": "ticket_prices", "section": "travel", "label": "Train fares by board (\u00a3)", "type": "intlist"},
+    {"key": "choose_destination", "section": "travel", "label": "Players choose their train destination",
+     "type": "bool"},
+)
+FIELD_BY_KEY = {f["key"]: f for f in FIELDS}
+RULESET_ID = re.compile(r"^[a-z0-9_-]{1,40}$")
+
 POOL_CATEGORIES = {"taxes", "fines", "fees"}
 POOL_TRIGGERS = {"on_landing", "on_stakeholder_landing"}
 POOL_SPLITS = {"by_stake", "equal"}
@@ -65,6 +103,8 @@ class RuleSet:
     decks: dict             # {deck name: [Card, ...]}
     sections: dict = field(default_factory=dict)  # merged sections, for display
     path: str = ""
+    board_paths: list = field(default_factory=list)  # as written in the file
+    card_paths: dict = field(default_factory=dict)
 
     @property
     def board(self):
@@ -146,6 +186,14 @@ def _label(flat_key):
 
 
 def _validate(flat, boards, required, where):
+    validate_values(flat, len(boards), where, required)
+    # Parsing the boards checks their structure (indexes, pooled squares, ...).
+    for board_id, board in enumerate(boards):
+        parse_board_data(board, board_id)
+
+
+def validate_values(flat, board_count, where="rule set", required=REQUIRED_VALUES):
+    """Check a complete set of flat rule values. Raises ValueError."""
     missing = sorted(set(required) - set(flat))
     if missing:
         raise ValueError(f"{where}: missing values {', '.join(_label(k) for k in missing)}")
@@ -178,12 +226,76 @@ def _validate(flat, boards, required, where):
         raise ValueError(f"{where}: houses_before_hotel can't exceed max_houses_per_property")
     if flat["doubles_before_jail"] < 1 or flat["max_jail_turns"] < 1:
         raise ValueError(f"{where}: doubles_before_jail and max_jail_turns must be at least 1")
-    # Parsing the boards checks their structure (indexes, pooled squares, ...).
-    for board_id, board in enumerate(boards):
-        parse_board_data(board, board_id)
-    if len(boards) > 1 and len(flat["ticket_prices"]) < len(boards):
+    if board_count > 1 and len(flat["ticket_prices"]) < board_count:
         raise ValueError(f"{where}: travel.ticket_prices needs a price for each of the "
-                         f"{len(boards)} boards (the fare to reach a station on that board)")
+                         f"{board_count} boards (the fare to reach a station on that board)")
+
+
+def coerce_values(changes):
+    """Convert submitted form values to the types the rule set uses.
+    Unknown keys are rejected. Raises ValueError with a readable message."""
+    out = {}
+    for key, value in (changes or {}).items():
+        spec = FIELD_BY_KEY.get(key)
+        if spec is None:
+            raise ValueError(f"'{key}' is not a rule that can be changed")
+        kind = spec["type"]
+        try:
+            if kind == "int":
+                out[key] = int(str(value).strip())
+            elif kind == "bool":
+                out[key] = value if isinstance(value, bool) else str(value).lower() in ("1", "true", "yes", "on")
+            elif kind == "choice":
+                if value not in spec["options"]:
+                    raise ValueError
+                out[key] = value
+            elif kind == "multi":
+                items = value if isinstance(value, list) else [v for v in str(value).split(",") if v.strip()]
+                items = [str(v).strip() for v in items]
+                if not set(items) <= set(spec["options"]):
+                    raise ValueError
+                out[key] = [o for o in spec["options"] if o in items]
+            elif kind == "intlist":
+                items = value if isinstance(value, list) else [v for v in str(value).split(",") if v.strip()]
+                out[key] = [int(str(v).strip()) for v in items]
+        except (TypeError, ValueError):
+            raise ValueError(f"{spec['label']}: invalid value {value!r}") from None
+        if kind == "int" and out[key] < spec.get("min", 0):
+            raise ValueError(f"{spec['label']} must be at least {spec.get('min', 0)}")
+    return out
+
+
+def ruleset_file_data(name, description, board_paths, card_paths, values, base_values=None):
+    """The JSON to write for a rule set. With ``base_values`` (classic's),
+    only values that differ are written, so the file keeps falling back to
+    classic for everything else."""
+    data = {"name": name, "description": description}
+    if len(board_paths) == 1:
+        data["board"] = board_paths[0]
+    else:
+        data["boards"] = list(board_paths)
+    if card_paths:
+        data["cards"] = dict(card_paths)
+    for spec in FIELDS:
+        key = spec["key"]
+        if base_values is not None and base_values.get(key) == values[key]:
+            continue
+        data.setdefault(spec["section"], {})[spec.get("name", key)] = values[key]
+    return data
+
+
+def save_ruleset(rulesets_dir, rid, data):
+    """Write a rule set file. ``rid`` must be a simple id (letters, digits,
+    _ and -), so the file always lands in the rule sets folder."""
+    if not RULESET_ID.match(rid or ""):
+        raise ValueError("A rule set id may only use lower-case letters, digits, _ and - (up to 40).")
+    path = os.path.join(rulesets_dir, rid + ".json")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    os.replace(tmp, path)
+    return path
 
 
 def load_ruleset(path, root, base=None):
@@ -215,6 +327,8 @@ def load_ruleset(path, root, base=None):
         decks=_load_decks(merged["cards"], root),
         sections={s: dict(merged[s]) for s in SECTIONS},
         path=path,
+        board_paths=list(merged["boards"]),
+        card_paths=dict(merged["cards"] or {}),
     )
 
 
