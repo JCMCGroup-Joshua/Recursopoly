@@ -34,6 +34,7 @@ Key design points:
 """
 
 import copy
+import dataclasses
 import random
 import secrets
 import time
@@ -2448,6 +2449,66 @@ class Game:
                                   f"{money(self.stake_sell_value(sq))}); collects {feeds}; "
                                   f"pays out {trigger}, split {split}"))
         return [{"label": label, "value": value} for label, value in rows]
+
+    # -- saving and restoring -----------------------------------------------
+
+    # Plain game fields copied as they are into a snapshot.
+    _SNAPSHOT_FIELDS = (
+        "join_code", "rules", "status", "host_name", "current_index", "turn_state", "turn_number",
+        "last_roll", "last_card", "pending_decision", "trades", "_next_trade_id", "eliminated",
+        "winner", "created_at", "turn_activity_at", "turn_timer", "rule_changes", "log",
+    )
+
+    def snapshot(self):
+        """Everything needed to rebuild this game later, as JSON-safe data.
+        The rule set itself (boards, cards) is saved by the caller."""
+        data = {key: copy.deepcopy(getattr(self, key)) for key in self._SNAPSHOT_FIELDS}
+        players = []
+        for p in self.players:
+            entry = dataclasses.asdict(p)
+            entry["position"] = p.position.to_dict()
+            players.append(entry)
+        data["players"] = players
+        data["squares"] = {str(bid): [copy.deepcopy(sq.attributes) for sq in board.squares]
+                           for bid, board in self.boards.items()}
+        data["decks"] = {name: [dataclasses.asdict(c) for c in deck.cards]
+                         for name, deck in self.decks.items()}
+        return data
+
+    @classmethod
+    def restore(cls, data, ruleset, now=None):
+        """Rebuild a game from :meth:`snapshot` data and the rule set it was
+        played with. Every player starts disconnected until they rejoin."""
+        game = cls(data["join_code"], ruleset)
+        for key in cls._SNAPSHOT_FIELDS:
+            if key in data:
+                setattr(game, key, copy.deepcopy(data[key]))
+        game.players = []
+        for entry in data["players"]:
+            entry = dict(entry)
+            entry["position"] = Position(**entry["position"])
+            entry["jail_cards"] = [Card(**c) for c in entry.get("jail_cards", [])]
+            player = Player(**entry)
+            if player.in_game:
+                player.connected = False
+                player.disconnected_since = time.time() if now is None else now
+            game.players.append(player)
+        for bid, squares in data["squares"].items():
+            board = game.boards[int(bid)]
+            if len(squares) != len(board.squares):
+                raise ValueError(f"saved board {bid} has {len(squares)} squares, expected {len(board.squares)}")
+            for square, attributes in zip(board.squares, squares):
+                square.attributes = copy.deepcopy(attributes)
+        for name, cards in data.get("decks", {}).items():
+            if name in game.decks:
+                game.decks[name].cards = [Card(**c) for c in cards]
+        if game.pending_decision and game.pending_decision["type"] == "auction":
+            # Give everyone a fresh auction timer after the restart.
+            game.pending_decision["ends_at"] = (time.time() if now is None else now) + \
+                game.pending_decision["seconds"]
+        if game.turn_activity_at is not None:
+            game.turn_activity_at = time.time() if now is None else now
+        return game
 
     def to_dict(self):
         current = self.current_player

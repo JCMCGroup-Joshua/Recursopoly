@@ -35,6 +35,9 @@ DEFAULTS = {
     "rulesets_dir": "rulesets",
     "default_ruleset": "classic",
     "admin_password": "",
+    "save_games": True,
+    "saves_dir": "saves",
+    "saves_keep_days": 14,
 }
 
 # Server settings the web settings page may change: key, label, type and
@@ -45,6 +48,9 @@ SERVER_FIELDS = (
     {"key": "disconnect_grace_seconds", "label": "Seconds before a disconnected player's turn is skipped",
      "type": "int"},
     {"key": "join_code_length", "label": "Join code length", "type": "int"},
+    {"key": "save_games", "label": "Save unfinished games so they survive a restart", "type": "bool"},
+    {"key": "saves_keep_days", "label": "Forget saved games untouched for this many days (0 = never)",
+     "type": "int", "restart": True},
     {"key": "host", "label": "Server address to listen on", "type": "str", "restart": True},
     {"key": "port", "label": "Server port", "type": "int", "restart": True},
     {"key": "debug", "label": "Flask debug mode", "type": "bool", "restart": True},

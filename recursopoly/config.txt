@@ -36,6 +36,15 @@ turn_timer_seconds=0
 # never needs it.
 admin_password=123456
 
+# --- Saved games --------------------------------------------------
+# Unfinished games are saved to saves_dir/<JOIN CODE>.json whenever they
+# change and loaded again when the server starts, so a restart doesn't
+# lose them. Saves untouched for saves_keep_days are deleted at startup
+# (0 keeps them forever).
+save_games=true
+saves_dir=saves
+saves_keep_days=14
+
 # --- Server -------------------------------------------------------
 host=0.0.0.0
 port=5000

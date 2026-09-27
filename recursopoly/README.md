@@ -15,7 +15,7 @@ The game currently includes:
   the adult-themed **AMST** rule set
 - **Phase 5:** nested boards and train travel (the **Recursopoly** rule set)
 - **Phase 6:** leaderboard, game history, spectators, chat and a turn timer
-- **Phase 7:** auctions
+- **Phase 7:** auctions and saved games that survive a restart
 
 Everything runs on Flask and Flask-SocketIO. There is **no database**:
 rule sets and boards are JSON files, server settings and card decks are
@@ -210,6 +210,21 @@ plain `.txt` files, and scores are appended to a `.csv` file.
     still need to lap the board (`must_lap_before_buying`) can't bid.
   - Stakes in pooled squares are never auctioned. The turn timer and the
     disconnect skip wait for an auction to finish.
+- **Saved games.** Every unfinished game (lobby or in progress) is saved
+  to `saves/<JOIN CODE>.json` whenever it changes, and loaded again when
+  the server starts. After a restart, open pages reconnect and rejoin by
+  themselves; anyone else rejoins with the join code and the same name.
+  - A save holds the whole game (money, positions, owners, buildings,
+    card deck order, open trades, a running auction, the log and the chat)
+    and a copy of its rule set. A game keeps its own rules even if the
+    rule set file changes or is deleted.
+  - Players are marked disconnected until they come back, so the usual
+    `disconnect_grace_seconds` turn skip applies. A running auction gets
+    a fresh timer.
+  - Finished games are deleted (`scores.csv` keeps their history), and so
+    are saves untouched for `saves_keep_days`. A save that can't be read
+    is renamed to `.broken` and skipped.
+  - Set `save_games=false` in `config.txt` to keep games in memory only.
 
 ## Changing settings from the web page
 
@@ -278,6 +293,9 @@ settings: everything about how the game plays comes from rule sets.
 | `disconnect_grace_seconds` | 5 | How long a player can be disconnected (for example, while a page reloads) before their turn is skipped |
 | `turn_timer_seconds` | 0 | Default seconds the active player may sit idle before their turn is ended for them (0 = no timer). The host can change it for a game in the lobby |
 | `admin_password` | (empty) | Password for saving rule sets and settings from the web page. Empty turns saving from the web off |
+| `save_games` | true | Save unfinished games so they survive a restart |
+| `saves_dir` | saves | Folder for saved games |
+| `saves_keep_days` | 14 | Delete saved games untouched for this many days at startup (0 = keep forever) |
 | `host` / `port` | 0.0.0.0 / 5000 | Where the server listens |
 | `debug` | false | Flask debug mode |
 | `scores_file` | scores.csv | Where scores are logged |
@@ -549,6 +567,7 @@ recursopoly/
     stats.py            Leaderboard and game history from scores.csv (no Flask)
     config.py           Loads config.txt
     logger.py           Appends rows to scores.csv
+    saves.py            Saves unfinished games to saves/ and loads them at startup
     config.txt          Server settings
     rulesets/           classic.json, amst.json, recursopoly.json, recursopoly_amst.json
     boards/             classic_board.json, amst_board.json,
@@ -558,7 +577,7 @@ recursopoly/
     templates/          index.html, lobby.html, game.html, leaderboard.html,
                         history.html, settings.html, _nav.html
     static/             recursopoly.css, recursopoly.js
-    tests/              Unit tests for the engine, rule sets and stats
+    tests/              Unit tests for the engine, rule sets, stats and saves
 ```
 
 The engine has no web dependencies, so it can be tested on its own:
@@ -601,3 +620,12 @@ Phase 6 adds:
   Socket.IO room without a seat, and chat is one more room broadcast.
 - `Game.touch()` and `Game.end_idle_turn()` implement the turn timer; a
   background task in `app.py` checks every game once a second.
+
+Phase 7 adds:
+
+- Auctions are an `auction` pending decision that any bidder answers with
+  `Game.bid()` / `Game.pass_auction()`; `Game.end_idle_auction()` closes a
+  quiet one from the same background task.
+- `Game.snapshot()` / `Game.restore()` turn a game into JSON-safe data and
+  back; `saves.py` does the file work. New game state must be added to
+  `Game._SNAPSHOT_FIELDS` (or `Player`, which is saved field by field).
