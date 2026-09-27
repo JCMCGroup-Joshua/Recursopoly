@@ -29,6 +29,7 @@ DEFAULTS = {
     "debug": False,
     "join_code_length": 6,
     "disconnect_grace_seconds": 5,
+    "turn_timer_seconds": 0,
     "scores_file": "scores.csv",
     "rulesets_dir": "rulesets",
     "default_ruleset": "classic",
@@ -99,6 +100,7 @@ class Config:
         v = self._values
         v["join_code_length"] = max(4, v["join_code_length"])
         v["disconnect_grace_seconds"] = max(0, v["disconnect_grace_seconds"])
+        v["turn_timer_seconds"] = max(0, v["turn_timer_seconds"])
 
     def get(self, key, default=None):
         return self._values.get(key, default)

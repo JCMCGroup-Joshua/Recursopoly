@@ -6,10 +6,15 @@
     <title>Recursopoly &middot; Game {{ join_code }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/recursopoly.css') }}">
 </head>
-<body data-page="game" data-join-code="{{ join_code }}">
+<body data-page="game" data-join-code="{{ join_code }}"
+      data-spectator="{{ '1' if spectator else '' }}" data-watch-name="{{ watch_name }}">
     <header class="site-header site-header-compact">
         <h1 class="logo"><a href="{{ url_for('index') }}">Recursopoly</a></h1>
-        <span class="header-code"><span id="header-ruleset"></span> Game <strong>{{ join_code }}</strong></span>
+        <span class="header-code">
+            <span id="watchers" class="watchers" hidden></span>
+            {% if spectator %}<span class="tag tag-watching">watching</span>{% endif %}
+            <span id="header-ruleset"></span> Game <strong>{{ join_code }}</strong>
+        </span>
     </header>
 
     <div id="error" class="banner banner-error" hidden></div>
@@ -24,6 +29,7 @@
         <aside class="sidebar">
             <section class="card turn-card">
                 <div id="turn-indicator" class="turn-indicator">Connecting&hellip;</div>
+                <div id="turn-timer" class="turn-timer" hidden></div>
                 <div id="dice" class="dice" aria-live="polite"></div>
                 <div id="card-slot" class="card-slot"></div>
                 <div id="jail-actions" class="panel panel-jail" hidden>
@@ -79,6 +85,15 @@
                 <p id="ruleset-description" class="muted small"></p>
                 <dl id="ruleset-summary" class="ruleset-summary"></dl>
             </details>
+
+            <section class="card chat-card">
+                <h2>Chat</h2>
+                <ol id="chat-log" class="chat-log" aria-live="polite"></ol>
+                <form id="chat-form" class="chat-form" autocomplete="off">
+                    <input id="chat-input" maxlength="200" placeholder="Say something&hellip;" aria-label="Chat message">
+                    <button type="submit" class="btn">Send</button>
+                </form>
+            </section>
 
             <section class="card log-card">
                 <h2>Event log</h2>

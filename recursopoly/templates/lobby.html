@@ -28,7 +28,8 @@
         </section>
 
         <section class="card">
-            <h2>Players <span id="player-count" class="muted"></span></h2>
+            <h2>Players <span id="player-count" class="muted"></span>
+                <span id="watchers" class="watchers" hidden></span></h2>
             <ul id="lobby-players" class="player-list"></ul>
             <p id="lobby-status" class="muted"></p>
             <div class="actions">
@@ -36,6 +37,15 @@
                 <button type="button" class="btn btn-danger" id="end-btn" hidden>Cancel game</button>
                 <button type="button" class="btn" id="leave-btn">Leave</button>
             </div>
+        </section>
+
+        <section class="card chat-card">
+            <h2>Chat</h2>
+            <ol id="chat-log" class="chat-log" aria-live="polite"></ol>
+            <form id="chat-form" class="chat-form" autocomplete="off">
+                <input id="chat-input" maxlength="200" placeholder="Say something&hellip;" aria-label="Chat message">
+                <button type="submit" class="btn">Send</button>
+            </form>
         </section>
     </main>
 

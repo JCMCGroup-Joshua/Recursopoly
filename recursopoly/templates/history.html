@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Recursopoly &middot; {% if game %}Game {{ game.join_code }}{% else %}Game history{% endif %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/recursopoly.css') }}">
+</head>
+<body data-page="history">
+    <header class="site-header">
+        <h1 class="logo"><a href="{{ url_for('index') }}">Recursopoly</a></h1>
+        <p class="tagline">{% if game %}Game {{ game.join_code }}{% else %}Game history{% endif %}</p>
+        {% include "_nav.html" %}
+    </header>
+
+    <main class="stats-page">
+        {% if error %}<div class="banner banner-error">{{ error }}</div>{% endif %}
+
+        {% if game %}
+        <p><a href="{{ url_for('history_page') }}">&larr; All games</a></p>
+        <section class="card">
+            <h2>Game {{ game.join_code }}</h2>
+            <dl class="ruleset-summary">
+                <dt>Rule set</dt><dd>{{ ruleset_names.get(game.ruleset, game.ruleset) }}</dd>
+                <dt>Started</dt><dd>{{ game.started | when }}</dd>
+                <dt>Finished</dt><dd>{{ game.ended | when if game.finished else "Not finished" }}</dd>
+                <dt>Players</dt><dd>{{ game.players | join(", ") or "&ndash;" }}</dd>
+                <dt>Winner</dt><dd>{{ game.winner or "&ndash;" }}</dd>
+            </dl>
+            {% if game.standings %}
+            <h3>Final standings</h3>
+            <ol class="standings">
+                {% for s in game.standings %}
+                <li>{{ s.name }} &mdash; net worth &pound;{{ s.net_worth }}
+                    {% if s.result != "finished" %}<span class="tag{% if s.result == 'winner' %} tag-host{% endif %}">{{ s.result }}</span>{% endif %}</li>
+                {% endfor %}
+            </ol>
+            {% endif %}
+        </section>
+
+        <section class="card table-card">
+            <h2>Events ({{ game.events | length }})</h2>
+            <div class="table-scroll">
+                <table class="stats-table events-table">
+                    <thead><tr><th>Time</th><th>Event</th><th>Player</th><th class="num">Money</th><th>Details</th></tr></thead>
+                    <tbody>
+                        {% for e in game.events %}
+                        <tr>
+                            <td class="nowrap">{{ e.timestamp | when(time_only=True) }}</td>
+                            <td class="nowrap">{{ e.event_type | replace("_", " ") }}</td>
+                            <td>{{ e.player_name }}</td>
+                            <td class="num">{% if e.money %}&pound;{{ e.money }}{% endif %}</td>
+                            <td class="details">{{ e.details }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        {% elif not games %}
+        <section class="card">
+            <p>No games have been played yet. <a href="{{ url_for('index') }}">Start one!</a></p>
+        </section>
+
+        {% else %}
+        <section class="card">
+            <form class="history-search" action="{{ url_for('history_page') }}" method="get">
+                <label for="history-code">Find a game by join code</label>
+                <div class="inline-form">
+                    <input id="history-code" name="code" class="code-input" maxlength="12" placeholder="e.g. K7QX2M">
+                    <button type="submit" class="btn">Show</button>
+                </div>
+            </form>
+        </section>
+        <section class="card table-card">
+            <h2>Past games ({{ games | length }})</h2>
+            <div class="table-scroll">
+                <table class="stats-table">
+                    <thead><tr><th>Code</th><th>Started</th><th>Rule set</th><th>Players</th><th>Winner</th></tr></thead>
+                    <tbody>
+                        {% for g in games %}
+                        <tr>
+                            <td><a href="{{ url_for('history_game', code=g.join_code) }}" class="code-link">{{ g.join_code }}</a></td>
+                            <td class="nowrap">{{ g.started | when }}</td>
+                            <td>{{ ruleset_names.get(g.ruleset, g.ruleset) }}</td>
+                            <td>{{ g.players | join(", ") }}</td>
+                            <td>{% if g.finished %}{{ g.winner or "&ndash;" }}{% else %}<span class="muted">not finished</span>{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        {% endif %}
+    </main>
+
+    <footer class="site-footer">Recursopoly</footer>
+</body>
+</html>

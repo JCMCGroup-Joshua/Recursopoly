@@ -14,6 +14,7 @@ The game currently includes:
 - **Phase 4:** rule sets, custom property sets, stakeholder ownership and
   the adult-themed **AMST** rule set
 - **Phase 5:** nested boards and train travel (the **Recursopoly** rule set)
+- **Phase 6:** leaderboard, game history, spectators, chat and a turn timer
 
 Everything runs on Flask and Flask-SocketIO. There is **no database**:
 rule sets and boards are JSON files, server settings and card decks are
@@ -153,6 +154,28 @@ plain `.txt` files, and scores are appended to a `.csv` file.
   of the board around it, with every token on the right board. A travel
   panel lists the destinations and fares.
 
+## Features (Phase 6)
+
+- **Leaderboard** (`/leaderboard`). All-time stats read from `scores.csv`:
+  games played, wins, highest net worth, most properties owned and most
+  journeys between boards, with a highlight for the leader in each.
+  Players are matched across games by name.
+- **Game history** (`/history`). Every past game by join code, with its
+  rule set, players and winner. `/history/<code>` shows the final
+  standings and every logged event.
+- **Spectator mode.** Enter a join code on the home page and click
+  **Watch** (or open `/watch/<code>`). Spectators see the board, players,
+  trades and log live but have no controls, and the server refuses any
+  action from them. Players can see how many people are watching.
+- **Chat.** The lobby and game page have a chat for players and
+  spectators. The last 100 messages are kept in memory for each game (they
+  are not saved to disk).
+- **Turn timer.** Set `turn_timer_seconds` in `config.txt` to end idle
+  turns: if the active player does nothing for that long, a pending
+  purchase is declined, a pending train ride is skipped, and the turn
+  passes on. An unpaid debt carries over to their next turn. A countdown
+  shows on the game page. `0` (the default) turns it off.
+
 ## Requirements
 
 - Python 3.9 or newer
@@ -181,6 +204,7 @@ settings: everything about how the game plays comes from rule sets.
 | `default_ruleset` | classic | Rule set preselected on the create-game form |
 | `join_code_length` | 6 | Length of generated join codes |
 | `disconnect_grace_seconds` | 5 | How long a player can be disconnected (for example, while a page reloads) before their turn is skipped |
+| `turn_timer_seconds` | 0 | Seconds the active player may sit idle before their turn is ended for them (0 = no timer) |
 | `host` / `port` | 0.0.0.0 / 5000 | Where the server listens |
 | `debug` | false | Flask debug mode |
 | `scores_file` | scores.csv | Where scores are logged |
@@ -376,6 +400,7 @@ devices on your network).
    code in large letters and the rule set's key values.
 2. **Invite friends.** Share the join code. Each friend opens the home
    page, types the code and a name under **Join with code**, and joins.
+   Anyone can **Watch** with just the code, and everyone can use the chat.
 3. **Start.** When enough players have joined, the host clicks **Start
    game**.
 4. **Take turns.** The **Roll dice** button is enabled only for the active
@@ -400,7 +425,8 @@ devices on your network).
     code and name.
 13. **Finish.** The game ends when one player is left, or when the host
     clicks **End game** (highest net worth wins). Everyone sees the final
-    standings.
+    standings, and the game appears on the **Leaderboard** and in the
+    **Game history**.
 
 ## Score log
 
@@ -422,11 +448,13 @@ Events:
   `building_sold`, `mortgaged`, `unmortgaged`
 - **Trading:** `trade_proposed`, `trade_accepted`, `trade_rejected`
 - **Train travel:** `ticket_purchased`, `board_changed`
+- **Turn timer:** `turn_timed_out`
 - **Endings:** `bankrupt`, `game_ended`
 
 When a game ends, one `game_ended` row is written per player. Its details
 hold their net worth, finishing position, result (`winner`, `finished`,
-`bankrupt` or `left`) and the rule set played. `game_started` rows also
+`bankrupt` or `left`), properties, stakes and journeys at the end, and the
+rule set played. `game_started` rows also
 name the rule set. Writes are guarded by a lock, so several games can
 log at once.
 
@@ -437,6 +465,7 @@ recursopoly/
     app.py              Flask + Flask-SocketIO server (routes, sockets, rooms)
     game_engine.py      Pure game logic: Board, Square, Player, Game (no Flask, no files)
     rulesets.py         Loads and checks rule sets, their boards and card decks
+    stats.py            Leaderboard and game history from scores.csv (no Flask)
     config.py           Loads config.txt
     logger.py           Appends rows to scores.csv
     config.txt          Server settings
@@ -444,9 +473,10 @@ recursopoly/
     boards/             classic_board.json, amst_board.json,
                         recursopoly_middle.json, recursopoly_core.json
     cards/              Card decks (classic and AMST)
-    templates/          index.html, lobby.html, game.html
+    templates/          index.html, lobby.html, game.html, leaderboard.html,
+                        history.html, _nav.html
     static/             recursopoly.css, recursopoly.js
-    tests/              Unit tests for the engine and rule sets
+    tests/              Unit tests for the engine, rule sets and stats
 ```
 
 The engine has no web dependencies, so it can be tested on its own:
@@ -481,12 +511,11 @@ Phases 2 to 5 are built on these hooks:
   `Position(board_id, index)`. Train travel is `Game.travel_options()` and
   a `travel` decision; journeys are counted in `Player.attributes`.
 
-Still to come:
+Phase 6 adds:
 
-- **Phase 6: stats and polish**
-  - `ScoreLogger.read_rows()` reads `scores.csv` back for the leaderboard
-    and history pages.
-  - Spectators join the Socket.IO room without taking a seat.
-  - A turn timer can reuse the background check that `app.py` already runs
-    for disconnects.
-  - Chat is one more room broadcast.
+- `stats.py` turns the rows `ScoreLogger.read_rows()` returns into the
+  leaderboard and game history, so new stats only need new log details.
+- Spectators and chat live in `app.py`: spectators join the game's
+  Socket.IO room without a seat, and chat is one more room broadcast.
+- `Game.touch()` and `Game.end_idle_turn()` implement the turn timer; a
+  background task in `app.py` checks every game once a second.

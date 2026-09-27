@@ -645,3 +645,113 @@ details.ruleset-card > summary::after { content: " \25BE"; color: var(--muted); 
 .travel-dest { grid-area: dest; }
 .travel-board { grid-area: board; font-weight: normal; font-size: 0.8rem; color: var(--muted); }
 .travel-price { grid-area: price; align-self: center; }
+
+/* ---- Navigation, leaderboard and history (Phase 6) ------------------------ */
+
+.site-nav {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    margin-top: 10px;
+    font-weight: 600;
+}
+
+.site-nav a { text-decoration: none; color: var(--muted); padding: 2px 4px; border-bottom: 2px solid transparent; }
+.site-nav a:hover { color: var(--ink); }
+.site-nav a[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
+
+.stats-page {
+    max-width: 1000px;
+    margin: 16px auto;
+    padding: 0 16px;
+    display: grid;
+    gap: 16px;
+}
+
+.stats-page h3 { margin: 16px 0 4px; font-size: 1rem; }
+/* Let wide tables scroll inside their card instead of widening the page. */
+.stats-page > * { min-width: 0; }
+
+.highlights {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.highlight { text-align: center; }
+.highlight-label { color: var(--muted); font-size: 0.85rem; font-weight: 600; }
+.highlight-value { font-size: 1.6rem; font-weight: 800; margin: 4px 0; font-variant-numeric: tabular-nums; }
+.highlight-unit { color: var(--muted); font-size: 0.8rem; margin-top: -4px; }
+.highlight-name { font-weight: 700; color: var(--accent); }
+
+.table-scroll { overflow-x: auto; }
+
+.stats-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92rem;
+}
+
+.stats-table th, .stats-table td {
+    padding: 7px 8px;
+    border-bottom: 1px solid #e3e6e4;
+    text-align: left;
+    vertical-align: top;
+}
+
+.stats-table th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
+.stats-table tbody tr:hover { background: #f8f8f4; }
+.stats-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.stats-table .nowrap { white-space: nowrap; }
+.events-table .details { color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
+.code-link { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-weight: 700; letter-spacing: 0.08em; }
+
+.inline-form { display: flex; gap: 8px; }
+.inline-form input { flex: 1; }
+.history-search { display: grid; gap: 6px; }
+.inline-form .btn { margin-top: 0; }
+
+/* ---- Spectators and chat (Phase 6) --------------------------------------- */
+
+.join-actions { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
+
+.watchers { font-size: 0.8rem; font-weight: 600; color: var(--muted); margin-right: 6px; }
+.tag-watching { background: #e3eef8; color: #1c5d99; margin-right: 6px; }
+
+/* Spectators see everything but get no controls. */
+.is-spectator #roll-btn,
+.is-spectator #decision,
+.is-spectator #debt,
+.is-spectator #travel,
+.is-spectator #jail-actions,
+.is-spectator #my-props-card,
+.is-spectator #propose-trade-btn,
+.is-spectator #end-btn { display: none !important; }
+
+.chat-card { display: flex; flex-direction: column; }
+
+.chat-log {
+    list-style: none;
+    margin: 0 0 8px;
+    padding: 0;
+    max-height: 220px;
+    min-height: 60px;
+    overflow-y: auto;
+    font-size: 0.9rem;
+    display: grid;
+    gap: 3px;
+    align-content: start;
+}
+
+.chat-line { overflow-wrap: anywhere; }
+.chat-name { font-weight: 700; margin-right: 6px; }
+.chat-line.is-me .chat-name { color: var(--good); }
+.chat-line.is-spectator .chat-name { color: #1c5d99; }
+.chat-form { display: flex; gap: 6px; }
+.chat-form input { flex: 1; min-width: 0; }
+.chat-form .btn { margin-top: 0; }
+
+/* Turn timer countdown. */
+.turn-timer { margin-top: 6px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.turn-timer.is-urgent { color: var(--accent); }

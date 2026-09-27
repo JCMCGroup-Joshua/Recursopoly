@@ -10,6 +10,8 @@ Run with:  python app.py
 
 import logging
 import threading
+import time
+from datetime import datetime
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
 from flask_socketio import SocketIO, emit, join_room, leave_room
@@ -24,6 +26,7 @@ from game_engine import (
 )
 from logger import ScoreLogger
 from rulesets import load_rulesets
+import stats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("recursopoly")
@@ -46,6 +49,15 @@ games = {}
 sessions = {}
 # (join_code, player_name) -> the player's most recent socket id.
 seat_sids = {}
+# Spectators: socket id -> (join_code, display name). They see everything
+# but hold no seat, so every game action from them is refused.
+spectator_sids = {}
+# Chat per game: join_code -> recent messages. In memory only, like games.
+chats = {}
+CHAT_HISTORY = 100
+CHAT_MAX_LENGTH = 200
+CHAT_MIN_INTERVAL = 0.5  # seconds between messages from one socket
+last_chat_at = {}  # socket id -> time of its last chat message
 # One lock guards `games`, `sessions` and every Game object. Socket handlers
 # run on separate threads in threading mode.
 state_lock = threading.RLock()
@@ -79,6 +91,57 @@ def index():
     )
 
 
+@app.template_filter("when")
+def format_when(timestamp, time_only=False):
+    """Show a scores.csv ISO timestamp as '27 Sep 2026 14:05' (UTC)."""
+    try:
+        moment = datetime.fromisoformat(timestamp)
+    except (TypeError, ValueError):
+        return timestamp or ""
+    return moment.strftime("%H:%M:%S" if time_only else "%d %b %Y %H:%M")
+
+
+def _ruleset_names():
+    return {rid: rs.name for rid, rs in RULESETS.items()}
+
+
+@app.route("/leaderboard")
+def leaderboard_page():
+    """All-time stats, read from scores.csv."""
+    rows = score_logger.read_rows()
+    table = stats.leaderboard(rows)
+    # (label, entry, key, prefix, unit)
+    highlights = [
+        ("Most wins", stats.top_by(table, "wins"), "wins", "", "wins"),
+        ("Highest net worth", stats.top_by(table, "best_net_worth"), "best_net_worth", "\u00a3", "in one game"),
+        ("Most properties owned", stats.top_by(table, "most_properties"), "most_properties", "",
+         "at the end of a game"),
+        ("Most journeys between boards", stats.top_by(table, "journeys"), "journeys", "", "train trips"),
+        ("Most games played", stats.top_by(table, "games"), "games", "", "games"),
+    ]
+    return render_template("leaderboard.html", table=table, highlights=highlights,
+                           game_count=len(stats.games(rows)))
+
+
+@app.route("/history")
+def history_page():
+    """Past games from scores.csv; ?code=XXXX jumps straight to one."""
+    code = normalise_join_code(request.args.get("code"))
+    if code:
+        return redirect(url_for("history_game", code=code))
+    return render_template("history.html", games=stats.games(score_logger.read_rows()), game=None,
+                           ruleset_names=_ruleset_names(), error=request.args.get("error"))
+
+
+@app.route("/history/<code>")
+def history_game(code):
+    detail = stats.game_detail(score_logger.read_rows(), code)
+    if detail is None:
+        return redirect(url_for("history_page", error=f"No game {normalise_join_code(code)} in the history."))
+    return render_template("history.html", game=detail, games=None, ruleset_names=_ruleset_names(),
+                           error=None)
+
+
 @app.route("/lobby/<code>")
 def lobby(code):
     code = normalise_join_code(code)
@@ -94,7 +157,18 @@ def game_page(code):
     with state_lock:
         if code not in games:
             return redirect(url_for("index", error=f"No Recursopoly game with code {code}."))
-    return render_template("game.html", join_code=code)
+    return render_template("game.html", join_code=code, spectator=False, watch_name="")
+
+
+@app.route("/watch/<code>")
+def watch_page(code):
+    """Spectator view: the game page with no seat and no controls."""
+    code = normalise_join_code(code)
+    with state_lock:
+        if code not in games:
+            return redirect(url_for("index", error=f"No Recursopoly game with code {code}."))
+    return render_template("game.html", join_code=code, spectator=True,
+                           watch_name=(request.args.get("name") or "").strip()[:20])
 
 
 @app.route("/api/game/<code>")
@@ -116,7 +190,15 @@ def broadcast_state(game):
     """Send the full game state to everyone in the game's room, and flush any
     queued score-log events."""
     score_logger.log_events(game.join_code, game.drain_events())
-    socketio.emit("game_state", game.to_dict(), to=game.join_code)
+    state = game.to_dict()
+    state["spectators"] = sorted(name for code, name in spectator_sids.values() if code == game.join_code)
+    # Turn timer: the client shows a countdown to turn_deadline, corrected
+    # for clock differences using server_time.
+    state["turn_timer"] = CONFIG.turn_timer_seconds
+    state["server_time"] = time.time()
+    state["turn_deadline"] = (game.turn_activity_at + CONFIG.turn_timer_seconds
+                              if CONFIG.turn_timer_seconds and game.turn_activity_at else None)
+    socketio.emit("game_state", state, to=game.join_code)
 
 
 def send_error(message, code="error"):
@@ -148,6 +230,7 @@ def seat_socket(game, player, rejoined):
         "rejoined": rejoined,
         "status": game.status,
     })
+    emit("chat_history", chats.get(game.join_code, []))
 
 
 def schedule_disconnect_check(code, name, delay):
@@ -164,11 +247,31 @@ def schedule_disconnect_check(code, name, delay):
     socketio.start_background_task(worker)
 
 
+def note_activity(game, name):
+    """Reset the turn timer when the active player does something."""
+    current = game.current_player
+    if current is not None and current.name == name:
+        game.touch()
+
+
+def turn_timer_loop():
+    """Background task: end turns that have been idle too long."""
+    limit = CONFIG.turn_timer_seconds
+    while True:
+        socketio.sleep(1)
+        with state_lock:
+            for game in list(games.values()):
+                if game.end_idle_turn(limit):
+                    log.info("Recursopoly game %s: turn timed out", game.join_code)
+                    broadcast_state(game)
+
+
 def cleanup_if_abandoned(game):
     """Forget ended games once nobody is watching, and empty lobbies."""
     if not any(p.connected for p in game.players):
         if game.status == GameStatus.ENDED or not game.players:
             games.pop(game.join_code, None)
+            chats.pop(game.join_code, None)
             for key in [k for k in seat_sids if k[0] == game.join_code]:
                 del seat_sids[key]
             log.info("Recursopoly game %s removed", game.join_code)
@@ -264,6 +367,7 @@ def on_roll_dice(_data=None):
             game.roll(name)  # the server rolls; the client sends no dice values
         except GameError as err:
             return send_error(str(err), err.code)
+        note_activity(game, name)
         broadcast_state(game)
 
 
@@ -279,6 +383,7 @@ def on_decide(data):
             game.decide(name, data.get("choice"))
         except GameError as err:
             return send_error(str(err), err.code)
+        note_activity(game, name)
         broadcast_state(game)
 
 
@@ -293,6 +398,7 @@ def player_action(action):
             action(game, name)
         except GameError as err:
             return send_error(str(err), err.code)
+        note_activity(game, name)
         broadcast_state(game)
 
 
@@ -381,9 +487,55 @@ def on_leave_game(_data=None):
         cleanup_if_abandoned(game)
 
 
+@socketio.on("spectate")
+def on_spectate(data):
+    """{"code", "name" (optional)}: watch a game without taking a seat."""
+    data = data or {}
+    code = normalise_join_code(data.get("code"))
+    name = " ".join((data.get("name") or "").split())[:20] or "Spectator"
+    with state_lock:
+        game = games.get(code)
+        if game is None:
+            return send_error(f"No Recursopoly game found with code '{code}'.", "bad_code")
+        spectator_sids[request.sid] = (code, name)
+        join_room(code)
+        emit("watching", {"join_code": code, "name": name})
+        emit("chat_history", chats.get(code, []))
+        broadcast_state(game)
+
+
+@socketio.on("chat")
+def on_chat(data):
+    """{"text"}: a chat message from a player or spectator in the room."""
+    text = " ".join(str((data or {}).get("text") or "").split())[:CHAT_MAX_LENGTH]
+    if not text:
+        return
+    now = time.time()
+    if now - last_chat_at.get(request.sid, 0) < CHAT_MIN_INTERVAL:
+        return send_error("You're sending messages too quickly.", "slow_down")
+    with state_lock:
+        game, name = current_session()
+        spectator = False
+        if game is None and request.sid in spectator_sids:
+            code, name = spectator_sids[request.sid]
+            game, spectator = games.get(code), True
+        if game is None:
+            return send_error("You are not in a game.", "no_session")
+        last_chat_at[request.sid] = now
+        message = {"time": now, "name": name, "text": text, "spectator": spectator}
+        history = chats.setdefault(game.join_code, [])
+        history.append(message)
+        del history[:-CHAT_HISTORY]
+        socketio.emit("chat_message", message, to=game.join_code)
+
+
 @socketio.on("disconnect")
 def on_disconnect(*_args):
     with state_lock:
+        last_chat_at.pop(request.sid, None)
+        watching = spectator_sids.pop(request.sid, None)
+        if watching and watching[0] in games:
+            broadcast_state(games[watching[0]])
         info = sessions.pop(request.sid, None)
         if not info:
             return
@@ -402,8 +554,15 @@ def on_disconnect(*_args):
         cleanup_if_abandoned(game)
 
 
+def start_background_tasks():
+    if CONFIG.turn_timer_seconds:
+        log.info("Recursopoly turn timer: %s seconds", CONFIG.turn_timer_seconds)
+        socketio.start_background_task(turn_timer_loop)
+
+
 if __name__ == "__main__":
     log.info("Starting Recursopoly on %s:%s", CONFIG.host, CONFIG.port)
+    start_background_tasks()
     socketio.run(
         app,
         host=CONFIG.host,

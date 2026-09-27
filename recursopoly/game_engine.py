@@ -569,6 +569,8 @@ class Game:
         self.eliminated = []  # names, in the order players went bankrupt or left
         self.winner = None
         self.created_at = time.time()
+        # When the active player last did something (for the turn timer).
+        self.turn_activity_at = None
 
         self.log = []  # human-readable lines for the event log panel
         self._events = []  # GameEvent queue for scores.csv
@@ -806,6 +808,7 @@ class Game:
             return
         self.current_index = index
         self.pending_decision = None
+        self.turn_activity_at = time.time()
         player = self.players[index]
         player.doubles_in_a_row = 0
         self.turn_state = TurnState.WAITING_TO_ROLL
@@ -858,6 +861,35 @@ class Game:
         # An unpaid debt stays with the player and is settled on their next turn.
         self._advance_turn()
         return self.current_index != before
+
+    def touch(self, now=None):
+        """Note that the active player just did something (resets the turn
+        timer)."""
+        self.turn_activity_at = time.time() if now is None else now
+
+    def end_idle_turn(self, limit, now=None):
+        """End the current turn if its player has done nothing for ``limit``
+        seconds (the optional turn timer). A pending purchase is declined, a
+        pending train ride is skipped, and an unpaid debt carries over to the
+        player's next turn. Returns True if the turn was ended."""
+        if self.status != GameStatus.IN_PROGRESS or not limit or self.current_player is None:
+            return False
+        now = time.time() if now is None else now
+        if self.turn_activity_at is None:
+            self.turn_activity_at = now
+            return False
+        if now - self.turn_activity_at < limit:
+            return False
+        player = self.current_player
+        decision = self.pending_decision
+        self._say(f"{player.name} ran out of time; their turn is over.")
+        if decision and decision["type"] in ("buy", "buy_stake"):
+            self._say(f"{player.name} did not buy {decision['square']}.")
+        elif decision and decision["type"] == "travel":
+            self._say(f"{player.name} stayed on {decision['from']}.")
+        self._event("turn_timed_out", player, details=f"limit={limit}")
+        self._advance_turn()
+        return True
 
     def roll_dice(self):
         return self.rng.randint(1, 6), self.rng.randint(1, 6)
@@ -2113,7 +2145,8 @@ class Game:
                 result = "finished"
             self._event("game_ended", p, details=(
                 f"net_worth={self.net_worth(p)}; position={position}; result={result}; "
-                f"ruleset={self.ruleset.id}"))
+                f"properties={len(self.owned_squares(p.name))}; stakes={len(self.stakes_of(p.name))}; "
+                f"journeys={p.attributes.get('journeys', 0)}; ruleset={self.ruleset.id}"))
 
     def standings(self):
         """Finishing order: players still in the game by net worth, then
@@ -2183,6 +2216,7 @@ class Game:
             "current_player": current.name if current and self.status == GameStatus.IN_PROGRESS else None,
             "turn_state": self.turn_state,
             "turn_number": self.turn_number,
+            "turn_activity_at": self.turn_activity_at,
             "last_roll": self.last_roll,
             "last_card": self.last_card,
             "pending_decision": self.pending_decision,
