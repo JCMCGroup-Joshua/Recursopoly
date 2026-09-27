@@ -29,6 +29,13 @@ disconnect_grace_seconds=5
 # 0 turns the timer off.
 turn_timer_seconds=0
 
+# --- Web settings -------------------------------------------------
+# Password needed to save settings and rule sets permanently from the
+# web page (Settings, or "Save as rule set" in the lobby). Leave empty to
+# turn saving from the web off. Changing a game's rules in its lobby
+# never needs it.
+admin_password=
+
 # --- Server -------------------------------------------------------
 host=0.0.0.0
 port=5000

@@ -53,9 +53,17 @@
         var box = $("error");
         if (!box) { alert(message); return; }
         box.textContent = message;
+        box.className = "banner banner-error";
         box.hidden = false;
         clearTimeout(showError.timer);
         showError.timer = setTimeout(function () { box.hidden = true; }, 6000);
+    }
+
+    // A green confirmation in the same place as errors.
+    function showNotice(message) {
+        showError(message);
+        var box = $("error");
+        if (box) box.className = "banner banner-ok";
     }
 
     function showFatal(message) {
@@ -287,6 +295,94 @@
         initChat();
     }
 
+    // ---- Rule forms (lobby editor and settings page) ------------------------
+
+    var SECTION_TITLES = {
+        players: "Players", economy: "Money", building: "Building", house_rules: "House rules",
+        pooled_squares: "Pooled squares", travel: "Train travel"
+    };
+
+    function jsonData(id) {
+        var node = $(id);
+        return node ? JSON.parse(node.textContent) : null;
+    }
+
+    function humanise(text) { return String(text).replace(/_/g, " "); }
+
+    // Draw inputs for every rule field, filled in from ``values``. Returns a
+    // function that reads the form back into {key: value}.
+    function buildRuleForm(container, fields, values, changed) {
+        container.replaceChildren();
+        var readers = {};
+        var section = null;
+        var fieldset = null;
+        fields.forEach(function (f) {
+            if (f.section !== section) {
+                section = f.section;
+                fieldset = el("fieldset", "rule-section");
+                fieldset.appendChild(el("legend", null, SECTION_TITLES[section] || humanise(section)));
+                container.appendChild(fieldset);
+            }
+            var row = el("label", "rule-field");
+            if (changed && changed.indexOf(f.key) >= 0) row.classList.add("is-changed");
+            row.appendChild(el("span", "rule-label", f.label));
+            var value = values[f.key];
+            var input;
+            if (f.type === "bool") {
+                row.classList.add("rule-check");
+                input = el("input");
+                input.type = "checkbox";
+                input.checked = !!value;
+                readers[f.key] = function () { return input.checked; };
+                row.insertBefore(input, row.firstChild);
+            } else if (f.type === "choice") {
+                input = el("select");
+                f.options.forEach(function (o) {
+                    var opt = el("option", null, humanise(o));
+                    opt.value = o;
+                    opt.selected = o === value;
+                    input.appendChild(opt);
+                });
+                readers[f.key] = function () { return input.value; };
+            } else if (f.type === "multi") {
+                input = el("span", "rule-multi");
+                var boxes = f.options.map(function (o) {
+                    var lab = el("label", "rule-option");
+                    var box = el("input");
+                    box.type = "checkbox";
+                    box.value = o;
+                    box.checked = (value || []).indexOf(o) >= 0;
+                    lab.appendChild(box);
+                    lab.appendChild(document.createTextNode(" " + humanise(o)));
+                    input.appendChild(lab);
+                    return box;
+                });
+                readers[f.key] = function () {
+                    return boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
+                };
+            } else if (f.type === "intlist") {
+                input = el("input");
+                input.value = (value || []).join(", ");
+                input.placeholder = "e.g. 50, 150, 300";
+                readers[f.key] = function () { return input.value; };
+            } else {
+                input = el("input");
+                input.type = "number";
+                input.min = f.min || 0;
+                input.step = 1;
+                input.value = value;
+                readers[f.key] = function () { return input.value; };
+            }
+            if (f.type !== "bool") row.appendChild(input);
+            fieldset.appendChild(row);
+        });
+        return function () {
+            var out = {};
+            Object.keys(readers).forEach(function (k) { out[k] = readers[k](); });
+            return out;
+        };
+    }
+
     // Name, description and key values of the game's rule set.
     function renderRuleset(state) {
         var rs = state.ruleset;
@@ -302,6 +398,12 @@
         if (state.turn_timer) {
             list.appendChild(el("dt", null, "Turn timer"));
             list.appendChild(el("dd", null, state.turn_timer + " seconds per turn"));
+        }
+        var note = $("ruleset-changed");
+        if (note) {
+            var changed = rs.changed || [];
+            note.hidden = !changed.length;
+            note.textContent = "Changed for this game: " + changed.map(humanise).join(", ");
         }
         if ($("header-ruleset")) $("header-ruleset").textContent = rs.name + " \u00b7";
     }
@@ -337,7 +439,59 @@
     // Lobby page
     // =====================================================================
 
+    // The host's rule editor in the lobby.
+    function initRuleEditor() {
+        var fields = jsonData("rule-fields");
+        var card = $("rules-editor-card");
+        var readForm = null;
+        var latest = null;
+
+        function open() {
+            if (!latest) return;
+            var rs = latest.ruleset;
+            readForm = buildRuleForm($("rules-fields"), fields, rs.values, rs.changed);
+            $("rules-turn-timer").value = latest.turn_timer || 0;
+            card.hidden = false;
+            card.scrollIntoView({ behavior: "smooth" });
+        }
+
+        $("edit-rules-btn").addEventListener("click", open);
+        $("close-rules-btn").addEventListener("click", function () { card.hidden = true; });
+        $("rules-form").addEventListener("submit", function (ev) {
+            ev.preventDefault();
+            socket.emit("update_rules", { values: readForm(), turn_timer: $("rules-turn-timer").value });
+        });
+        $("reset-rules-btn").addEventListener("click", function () {
+            if (confirm("Put every rule back to the rule set's values?")) {
+                socket.emit("update_rules", { reset: true });
+                card.hidden = true;
+            }
+        });
+        var saveForm = $("save-ruleset-form");
+        if (saveForm) {
+            saveForm.addEventListener("submit", function (ev) {
+                ev.preventDefault();
+                socket.emit("save_ruleset", {
+                    id: $("save-id").value.trim(), name: $("save-name").value.trim(),
+                    description: $("save-description").value.trim(), password: $("save-password").value
+                });
+                $("save-password").value = "";
+            });
+        }
+        socket.on("ruleset_saved", function (info) {
+            showNotice("Saved rule set '" + info.name + "'. It can now be picked when creating a game.");
+        });
+
+        return function (state) {
+            latest = state;
+            var host = isMe(state.host) && state.status === "lobby";
+            $("edit-rules-btn").hidden = !host;
+            if (!host) card.hidden = true;
+        };
+    }
+
     function initLobby() {
+        var ruleEditor = initRuleEditor();
         $("copy-code").addEventListener("click", function () {
             if (navigator.clipboard) navigator.clipboard.writeText(pageCode);
         });
@@ -350,6 +504,7 @@
             if (state.status === "in_progress") { goTo("game", state.join_code); return; }
             renderRuleset(state);
             renderWatchers(state);
+            ruleEditor(state);
 
             var list = $("lobby-players");
             list.replaceChildren();
@@ -1064,9 +1219,133 @@
         });
     }
 
+    // =====================================================================
+    // Settings page (rule sets and server settings; saving needs the admin
+    // password, which the server checks)
+    // =====================================================================
+
+    function showMessage(text, ok) {
+        var box = $("settings-message");
+        box.textContent = text;
+        box.className = "banner " + (ok ? "banner-ok" : "banner-error");
+        box.hidden = false;
+        box.scrollIntoView({ behavior: "smooth" });
+    }
+
+    function postJSON(url, body) {
+        return fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+        }).then(function (res) { return res.json(); });
+    }
+
+    function initSettings() {
+        var fields = jsonData("rule-fields");
+        var rulesets = jsonData("rulesets-data");
+        var picker = $("ruleset-picker");
+        var readForm = null;
+        var params = new URLSearchParams(window.location.search);
+
+        rulesets.forEach(function (rs) {
+            var opt = el("option", null, rs.name + " (" + rs.id + ")");
+            opt.value = rs.id;
+            picker.appendChild(opt);
+        });
+        if (params.get("ruleset")) picker.value = params.get("ruleset");
+        if (params.get("saved")) showMessage(params.get("saved"), true);
+
+        function current() {
+            return rulesets.filter(function (rs) { return rs.id === picker.value; })[0];
+        }
+        function show() {
+            var rs = current();
+            $("rs-name").value = rs.name;
+            $("rs-description").value = rs.description;
+            $("ruleset-boards").textContent = "Board" + (rs.boards.length > 1 ? "s" : "") + ": " +
+                rs.boards.join(", ") + " (boards and card decks are set in the file)";
+            readForm = buildRuleForm($("ruleset-fields"), fields, rs.values, []);
+        }
+        picker.addEventListener("change", show);
+        show();
+
+        function save(id) {
+            postJSON("/settings/ruleset", {
+                password: $("admin-password").value, id: id, source: picker.value,
+                name: $("rs-name").value.trim(), description: $("rs-description").value.trim(),
+                values: readForm()
+            }).then(function (res) {
+                if (res.ok) {
+                    window.location.href = "/settings?ruleset=" + encodeURIComponent(res.id) +
+                        "&saved=" + encodeURIComponent(res.message);
+                } else {
+                    showMessage(res.error, false);
+                }
+            }).catch(function () { showMessage("Could not reach the server.", false); });
+        }
+        $("ruleset-form").addEventListener("submit", function (ev) { ev.preventDefault(); save(picker.value); });
+        $("save-as-btn").addEventListener("click", function () {
+            var id = $("rs-new-id").value.trim().toLowerCase();
+            if (!/^[a-z0-9_-]{1,40}$/.test(id)) {
+                showMessage("Enter a new id using lower-case letters, digits, _ or -.", false);
+                return;
+            }
+            save(id);
+        });
+
+        // Server settings.
+        var serverFields = jsonData("server-fields-data");
+        var serverValues = jsonData("server-values");
+        var container = $("server-fields");
+        var readers = {};
+        var fieldset = el("fieldset", "rule-section");
+        fieldset.appendChild(el("legend", null, "config.txt"));
+        container.appendChild(fieldset);
+        serverFields.forEach(function (f) {
+            var row = el("label", "rule-field");
+            row.appendChild(el("span", "rule-label", f.label + (f.restart ? " \u27f3" : "")));
+            var input;
+            if (f.type === "ruleset") {
+                input = el("select");
+                rulesets.forEach(function (rs) {
+                    var opt = el("option", null, rs.name);
+                    opt.value = rs.id;
+                    opt.selected = rs.id === serverValues[f.key];
+                    input.appendChild(opt);
+                });
+                readers[f.key] = function () { return input.value; };
+            } else if (f.type === "bool") {
+                row.classList.add("rule-check");
+                input = el("input");
+                input.type = "checkbox";
+                input.checked = !!serverValues[f.key];
+                readers[f.key] = function () { return input.checked; };
+            } else {
+                input = el("input");
+                if (f.type === "int") { input.type = "number"; input.min = 0; input.step = 1; }
+                input.value = serverValues[f.key];
+                readers[f.key] = function () { return input.value; };
+            }
+            if (f.type === "bool") row.insertBefore(input, row.firstChild); else row.appendChild(input);
+            fieldset.appendChild(row);
+        });
+        $("server-form").addEventListener("submit", function (ev) {
+            ev.preventDefault();
+            var values = {};
+            Object.keys(readers).forEach(function (k) { values[k] = readers[k](); });
+            postJSON("/settings/server", {
+                password: $("admin-password").value, values: values, new_password: $("new-password").value
+            }).then(function (res) {
+                showMessage(res.ok ? res.message : res.error, res.ok);
+                if (res.ok) $("new-password").value = "";
+            }).catch(function () { showMessage("Could not reach the server.", false); });
+        });
+    }
+
     // ---- Boot ------------------------------------------------------------
 
     if (page === "index") initIndex();
     else if (page === "lobby") initLobby();
     else if (page === "game") initGame();
+    else if (page === "settings") initSettings();
 })();

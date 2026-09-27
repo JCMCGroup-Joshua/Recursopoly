@@ -11,6 +11,7 @@ settings are added as entries in :data:`DEFAULTS`; values are converted to
 the same type as their default.
 """
 
+import hmac
 import logging
 import os
 
@@ -33,7 +34,21 @@ DEFAULTS = {
     "scores_file": "scores.csv",
     "rulesets_dir": "rulesets",
     "default_ruleset": "classic",
+    "admin_password": "",
 }
+
+# Server settings the web settings page may change: key, label, type and
+# whether a restart is needed before the change takes effect.
+SERVER_FIELDS = (
+    {"key": "default_ruleset", "label": "Rule set preselected on the create form", "type": "ruleset"},
+    {"key": "turn_timer_seconds", "label": "Default turn timer (seconds, 0 = off)", "type": "int"},
+    {"key": "disconnect_grace_seconds", "label": "Seconds before a disconnected player's turn is skipped",
+     "type": "int"},
+    {"key": "join_code_length", "label": "Join code length", "type": "int"},
+    {"key": "host", "label": "Server address to listen on", "type": "str", "restart": True},
+    {"key": "port", "label": "Server port", "type": "int", "restart": True},
+    {"key": "debug", "label": "Flask debug mode", "type": "bool", "restart": True},
+)
 
 _TRUE_WORDS = {"1", "true", "yes", "on"}
 _FALSE_WORDS = {"0", "false", "no", "off"}
@@ -102,6 +117,33 @@ class Config:
         v["disconnect_grace_seconds"] = max(0, v["disconnect_grace_seconds"])
         v["turn_timer_seconds"] = max(0, v["turn_timer_seconds"])
 
+    def update(self, raw_values):
+        """Apply new values (strings or typed) in memory, with the same
+        conversion and checks as loading the file. Returns the typed values."""
+        typed = {}
+        for key, raw in raw_values.items():
+            if key not in DEFAULTS:
+                raise ValueError(f"Unknown setting {key!r}")
+            default = DEFAULTS[key]
+            if isinstance(raw, bool) and isinstance(default, bool):
+                typed[key] = raw
+            else:
+                try:
+                    typed[key] = _convert(str(raw).strip(), default)
+                except ValueError:
+                    raise ValueError(f"{key}: invalid value {raw!r}") from None
+            if isinstance(typed[key], int) and not isinstance(typed[key], bool) and typed[key] < 0:
+                raise ValueError(f"{key} can't be negative")
+        self._values.update(typed)
+        self._sanity_check()
+        return typed
+
+    def check_admin_password(self, given):
+        """True if ``given`` matches admin_password. Saving from the web is
+        disabled while no admin password is set."""
+        expected = self._values.get("admin_password") or ""
+        return bool(expected) and hmac.compare_digest(str(given or ""), expected)
+
     def get(self, key, default=None):
         return self._values.get(key, default)
 
@@ -119,6 +161,36 @@ class Config:
         """Resolve a path-valued setting relative to the project folder."""
         value = self._values[key]
         return value if os.path.isabs(value) else os.path.join(BASE_DIR, value)
+
+
+def _format(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def save_config(values, path=DEFAULT_CONFIG_PATH):
+    """Write settings to config.txt, keeping its comments and layout: each
+    key's line is updated in place, and new keys are appended."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except FileNotFoundError:
+        lines = ["# Recursopoly server configuration"]
+    pending = dict(values)
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key = stripped.split("=", 1)[0].strip().lower()
+        if key in pending:
+            lines[i] = f"{key}={_format(pending.pop(key))}"
+    for key, value in pending.items():
+        lines.append(f"{key}={_format(value)}")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    os.replace(tmp, path)
 
 
 def load_config(path=DEFAULT_CONFIG_PATH):

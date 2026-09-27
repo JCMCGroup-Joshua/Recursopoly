@@ -755,3 +755,43 @@ details.ruleset-card > summary::after { content: " \25BE"; color: var(--muted); 
 /* Turn timer countdown. */
 .turn-timer { margin-top: 6px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
 .turn-timer.is-urgent { color: var(--accent); }
+
+/* ---- Rule editing and settings --------------------------------------------- */
+
+.rule-form { display: grid; gap: 10px; margin: 10px 0; }
+
+.rule-section {
+    border: 1px solid #d5dad7;
+    border-radius: 8px;
+    padding: 8px 12px 12px;
+    margin: 0;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    min-width: 0;
+}
+
+.rule-section legend { font-weight: 800; padding: 0 4px; }
+.rule-field { display: grid; gap: 3px; font-weight: normal; font-size: 0.88rem; align-content: start; }
+.rule-field .rule-label { font-weight: 600; }
+.rule-field.rule-check { grid-template-columns: auto 1fr; align-items: center; column-gap: 8px; }
+.rule-field.rule-check input { width: auto; }
+.rule-field.is-changed .rule-label::after { content: " \2022 changed"; color: var(--accent); font-weight: 700; }
+.rule-multi { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.rule-option { font-weight: normal; display: inline-flex; align-items: center; gap: 4px; }
+.rule-option input { width: auto; }
+.rules-changed { color: var(--accent); font-weight: 600; font-size: 0.9rem; margin: 4px 0 0; }
+
+.save-ruleset { margin-top: 14px; border-top: 1px solid #e3e6e4; padding-top: 10px; }
+.save-ruleset summary { cursor: pointer; font-weight: 700; }
+.save-form { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); margin: 8px 0; }
+.save-form label { display: grid; gap: 3px; font-size: 0.88rem; }
+.save-form .btn { align-self: end; margin-top: 0; }
+.save-as { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-top: 12px; }
+.save-as label { display: grid; gap: 3px; flex: 1 1 220px; font-size: 0.88rem; }
+.save-as .btn { margin-top: 0; }
+
+.banner-ok { background: #e3f5e8; color: #1b5e20; border: 1px solid #a5d6a7; }
+.banner-info { background: #e3eef8; color: #1c3d5a; border: 1px solid #90b4d8; font-weight: 500; }
+.settings-page code { background: rgba(0, 0, 0, 0.06); padding: 1px 4px; border-radius: 4px; }
+.save-form label.wide { grid-column: 1 / -1; }

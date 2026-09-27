@@ -61,6 +61,30 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg.default_ruleset, "classic")  # missing key falls back
 
 
+class ConfigSavingTests(unittest.TestCase):
+    """Settings saved from the web page."""
+
+    def test_save_keeps_comments_and_updates_in_place(self):
+        from config import save_config
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.txt")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("# comment\nport=5000\n\n# timer\nturn_timer_seconds=0\n")
+            save_config({"turn_timer_seconds": 45, "debug": True}, path)
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+        self.assertEqual(text, "# comment\nport=5000\n\n# timer\nturn_timer_seconds=45\ndebug=true\n")
+
+    def test_admin_password(self):
+        self.assertFalse(Config({}).check_admin_password(""))  # no password set: saving is off
+        cfg = Config({"admin_password": "pw"})
+        self.assertTrue(cfg.check_admin_password("pw"))
+        self.assertFalse(cfg.check_admin_password("PW"))
+        with self.assertRaises(ValueError):
+            cfg.update({"port": "not a number"})
+        self.assertEqual(cfg.update({"port": "8080"}), {"port": 8080})
+
+
 class BoardTests(unittest.TestCase):
     def test_classic_board_loads_with_40_squares(self):
         board = parse_board_data(RULESETS["classic"].board, 0)
