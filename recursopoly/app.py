@@ -10,6 +10,7 @@ Run with:  python app.py
 
 import logging
 import threading
+from datetime import datetime
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
 from flask_socketio import SocketIO, emit, join_room, leave_room
@@ -24,6 +25,7 @@ from game_engine import (
 )
 from logger import ScoreLogger
 from rulesets import load_rulesets
+import stats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("recursopoly")
@@ -77,6 +79,57 @@ def index():
         rulesets=list(RULESETS.values()),
         default_ruleset=DEFAULT_RULESET,
     )
+
+
+@app.template_filter("when")
+def format_when(timestamp, time_only=False):
+    """Show a scores.csv ISO timestamp as '27 Sep 2026 14:05' (UTC)."""
+    try:
+        moment = datetime.fromisoformat(timestamp)
+    except (TypeError, ValueError):
+        return timestamp or ""
+    return moment.strftime("%H:%M:%S" if time_only else "%d %b %Y %H:%M")
+
+
+def _ruleset_names():
+    return {rid: rs.name for rid, rs in RULESETS.items()}
+
+
+@app.route("/leaderboard")
+def leaderboard_page():
+    """All-time stats, read from scores.csv."""
+    rows = score_logger.read_rows()
+    table = stats.leaderboard(rows)
+    # (label, entry, key, prefix, unit)
+    highlights = [
+        ("Most wins", stats.top_by(table, "wins"), "wins", "", "wins"),
+        ("Highest net worth", stats.top_by(table, "best_net_worth"), "best_net_worth", "\u00a3", "in one game"),
+        ("Most properties owned", stats.top_by(table, "most_properties"), "most_properties", "",
+         "at the end of a game"),
+        ("Most journeys between boards", stats.top_by(table, "journeys"), "journeys", "", "train trips"),
+        ("Most games played", stats.top_by(table, "games"), "games", "", "games"),
+    ]
+    return render_template("leaderboard.html", table=table, highlights=highlights,
+                           game_count=len(stats.games(rows)))
+
+
+@app.route("/history")
+def history_page():
+    """Past games from scores.csv; ?code=XXXX jumps straight to one."""
+    code = normalise_join_code(request.args.get("code"))
+    if code:
+        return redirect(url_for("history_game", code=code))
+    return render_template("history.html", games=stats.games(score_logger.read_rows()), game=None,
+                           ruleset_names=_ruleset_names(), error=request.args.get("error"))
+
+
+@app.route("/history/<code>")
+def history_game(code):
+    detail = stats.game_detail(score_logger.read_rows(), code)
+    if detail is None:
+        return redirect(url_for("history_page", error=f"No game {normalise_join_code(code)} in the history."))
+    return render_template("history.html", game=detail, games=None, ruleset_names=_ruleset_names(),
+                           error=None)
 
 
 @app.route("/lobby/<code>")

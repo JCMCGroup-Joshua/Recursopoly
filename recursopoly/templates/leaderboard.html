@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Recursopoly &middot; Leaderboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/recursopoly.css') }}">
+</head>
+<body data-page="leaderboard">
+    <header class="site-header">
+        <h1 class="logo"><a href="{{ url_for('index') }}">Recursopoly</a></h1>
+        <p class="tagline">Leaderboard &middot; all-time stats from {{ game_count }} game{{ '' if game_count == 1 else 's' }}</p>
+        {% include "_nav.html" %}
+    </header>
+
+    <main class="stats-page">
+        {% if not table %}
+        <section class="card">
+            <p>No games have been played yet. <a href="{{ url_for('index') }}">Start one!</a></p>
+        </section>
+        {% else %}
+        <section class="highlights">
+            {% for label, entry, key, prefix, unit in highlights %}
+            <div class="card highlight">
+                <div class="highlight-label">{{ label }}</div>
+                {% if entry %}
+                <div class="highlight-value">{{ prefix }}{{ entry[key] }}</div>
+                <div class="highlight-unit">{{ unit }}</div>
+                <div class="highlight-name">{{ entry.name }}</div>
+                {% else %}
+                <div class="highlight-value muted">&ndash;</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </section>
+
+        <section class="card table-card">
+            <h2>All players</h2>
+            <div class="table-scroll">
+                <table class="stats-table">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>Player</th><th class="num">Games</th><th class="num">Wins</th>
+                            <th class="num">Highest net worth</th><th class="num">Most properties</th>
+                            <th class="num">Journeys</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for e in table %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ e.name }}</td>
+                            <td class="num">{{ e.games }}</td>
+                            <td class="num">{{ e.wins }}</td>
+                            <td class="num">&pound;{{ e.best_net_worth }}</td>
+                            <td class="num">{{ e.most_properties }}</td>
+                            <td class="num">{{ e.journeys }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="muted small">Players are matched across games by name. Journeys are train trips between boards.</p>
+        </section>
+        {% endif %}
+    </main>
+
+    <footer class="site-footer">Recursopoly</footer>
+</body>
+</html>
