@@ -1,0 +1,36 @@
+{
+  "name": "The VIP Ring",
+  "go_salary": 350,
+  "groups": {
+    "private_booths": {"name": "Private Booths", "colour": "#ec407a"},
+    "burlesque": {"name": "Burlesque", "colour": "#c62828"},
+    "high_stakes": {"name": "High Stakes", "colour": "#b8860b"},
+    "after_hours": {"name": "After Hours", "colour": "#283593"}
+  },
+  "squares": [
+    {"index": 0, "name": "GO", "type": "go"},
+    {"index": 1, "name": "Private Booth", "type": "property", "group": "private_booths", "price": 300, "rent": 30, "house_rents": [150, 450, 1200, 1500], "hotel_rents": [1800, 2520, 3240], "house_cost": 200, "hotel_cost": 250},
+    {"index": 2, "name": "Lucky Dip", "type": "community_chest"},
+    {"index": 3, "name": "Velvet Rope Bar", "type": "property", "group": "private_booths", "price": 320, "rent": 32, "house_rents": [160, 480, 1280, 1600], "hotel_rents": [1920, 2685, 3455], "house_cost": 200, "hotel_cost": 250},
+    {"index": 4, "name": "Bottle Service", "type": "tax", "amount": 250},
+    {"index": 5, "name": "VIP Shuttle", "type": "station", "price": 300, "rents": [40, 80, 160, 320]},
+    {"index": 6, "name": "Jail / Just Visiting", "type": "jail"},
+    {"index": 7, "name": "Pole Dance Studio", "type": "property", "group": "burlesque", "price": 360, "rent": 38, "house_rents": [190, 570, 1520, 1900], "hotel_rents": [2280, 3190, 4100], "house_cost": 200, "hotel_cost": 250},
+    {"index": 8, "name": "Last Call", "type": "chance"},
+    {"index": 9, "name": "Lap Dance Lounge", "type": "property", "group": "burlesque", "price": 380, "rent": 40, "house_rents": [200, 600, 1600, 2000], "hotel_rents": [2400, 3360, 4320], "house_cost": 200, "hotel_cost": 250},
+    {"index": 10, "name": "Smoke Machine", "type": "utility", "price": 250, "dice_multipliers": [6, 15]},
+    {"index": 11, "name": "Burlesque Hall", "type": "property", "group": "burlesque", "price": 400, "rent": 44, "house_rents": [220, 660, 1760, 2200], "hotel_rents": [2640, 3695, 4750], "house_cost": 200, "hotel_cost": 250},
+    {"index": 12, "name": "The Gentlemen's Club", "type": "pooled", "icon": "🎩", "stakeholder": true, "max_stakes": 4, "buy_in": 250},
+    {"index": 13, "name": "Cigar Lounge", "type": "property", "group": "high_stakes", "price": 440, "rent": 48, "house_rents": [240, 720, 1920, 2400], "hotel_rents": [2880, 4030, 5180], "house_cost": 250, "hotel_cost": 300},
+    {"index": 14, "name": "Last Call", "type": "chance"},
+    {"index": 15, "name": "Night Owl Express", "type": "station", "price": 300, "rents": [40, 80, 160, 320]},
+    {"index": 16, "name": "Whisky Library", "type": "property", "group": "high_stakes", "price": 460, "rent": 50, "house_rents": [250, 750, 2000, 2500], "hotel_rents": [3000, 4200, 5400], "house_cost": 250, "hotel_cost": 300},
+    {"index": 17, "name": "Casino Royale", "type": "property", "group": "high_stakes", "price": 480, "rent": 54, "house_rents": [270, 810, 2160, 2700], "hotel_rents": [3240, 4535, 5830], "house_cost": 250, "hotel_cost": 300},
+    {"index": 18, "name": "Busted!", "type": "go_to_jail"},
+    {"index": 19, "name": "Rooftop Pool Party", "type": "property", "group": "after_hours", "price": 520, "rent": 60, "house_rents": [300, 900, 2400, 3000], "hotel_rents": [3600, 5040, 6480], "house_cost": 250, "hotel_cost": 300},
+    {"index": 20, "name": "Lucky Dip", "type": "community_chest"},
+    {"index": 21, "name": "Masquerade Ball", "type": "property", "group": "after_hours", "price": 560, "rent": 65, "house_rents": [325, 975, 2600, 3250], "hotel_rents": [3900, 5460, 7020], "house_cost": 250, "hotel_cost": 300},
+    {"index": 22, "name": "Tip Jar", "type": "tax", "amount": 300},
+    {"index": 23, "name": "Penthouse Afterparty", "type": "property", "group": "after_hours", "price": 600, "rent": 70, "house_rents": [350, 1050, 2800, 3500], "hotel_rents": [4200, 5880, 7560], "house_cost": 250, "hotel_cost": 300}
+  ]
+}

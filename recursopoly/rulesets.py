@@ -14,7 +14,7 @@ grouped into sections:
       "building":    {"max_hotels_per_property": 3, ...},
       "house_rules": {"must_lap_before_buying": true, ...},
       "pooled_squares": {"receives": ["taxes", "fines"], "payout_trigger": ...},
-      "travel":      {"ticket_prices": [50, 150, 300]}
+      "travel":      {"ticket_prices": [50, 150, 300], "choose_destination": true}
     }
 
 rulesets/classic.json is the base: any section or value another rule set
@@ -47,7 +47,7 @@ REQUIRED_VALUES = (
     "max_houses_per_property", "houses_before_hotel", "max_hotels_per_property",
     "doubles_before_jail", "max_jail_turns", "must_lap_before_buying",
     "pool_receives", "pool_payout_trigger", "pool_payout_split", "pool_sell_back_percent",
-    "ticket_prices",
+    "ticket_prices", "choose_destination",
 )
 
 POOL_CATEGORIES = {"taxes", "fines", "fees"}
@@ -150,7 +150,7 @@ def _validate(flat, boards, required, where):
     if missing:
         raise ValueError(f"{where}: missing values {', '.join(_label(k) for k in missing)}")
     for key in required:
-        if key == "must_lap_before_buying":
+        if key in ("must_lap_before_buying", "choose_destination"):
             if not isinstance(flat[key], bool):
                 raise ValueError(f"{where}: {key} must be true or false")
         elif key == "pool_receives":

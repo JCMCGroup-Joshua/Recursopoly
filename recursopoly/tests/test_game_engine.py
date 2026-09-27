@@ -1077,5 +1077,87 @@ class TurnTimerTests(unittest.TestCase):
         self.assertEqual(self.game.current_player.name, "Bob")
 
 
+class AutomaticTravelTests(unittest.TestCase):
+    """travel.choose_destination = false: stations move you one board inward
+    automatically, and from the innermost board back to the outer board."""
+
+    def setUp(self):
+        self.game = make_game(players=("Alice", "Bob"), ruleset="recursopoly", choose_destination=False)
+        self.game.start("Alice")
+        self.alice = self.game.get_player("Alice")
+
+    def to_alice(self, board_id, index):
+        self.game.current_index = 0
+        self.game.turn_state = TurnState.WAITING_TO_ROLL
+        self.alice.position = Position(board_id, index)
+
+    def test_outer_to_middle(self):
+        self.game.roll("Alice", dice=(2, 3))  # King's Cross
+        self.game.decide("Alice", "decline")
+        self.assertEqual(self.alice.position, Position(1, 5))  # Middle Ring Central
+        self.assertEqual(self.alice.money, 1500 - 150)
+        self.assertIsNone(self.game.pending_decision)  # nothing to choose
+        self.assertEqual(self.game.current_player.name, "Bob")
+        self.assertIn("automatic=yes", [e.details for e in self.game.drain_events()
+                                        if e.event_type == "ticket_purchased"][0])
+
+    def test_middle_to_core_and_back_out(self):
+        self.game.boards[1].square(15).set_owner("Bob")  # owned: no buy offer
+        self.to_alice(1, 12)
+        self.game.roll("Alice", dice=(1, 2))  # Middle Ring North, pays rent
+        self.assertEqual(self.alice.position, Position(2, 2))  # Core Terminal
+        self.game.boards[2].square(2).set_owner("Bob")
+        self.to_alice(2, 0)
+        money_before = self.alice.money
+        self.game.roll("Alice", dice=(1, 1))  # Core Terminal again
+        self.assertEqual(self.alice.position.board_id, 0)  # back to the outer board
+        self.assertEqual(self.game.boards[0].square(self.alice.position.index).type, "station")
+        self.assertEqual(self.alice.money, money_before - 60 - 50)  # rent, then the £50 fare
+        self.assertEqual(self.alice.attributes["journeys"], 2)
+
+    def test_next_board_order(self):
+        self.assertEqual([self.game.next_board_id(b) for b in (0, 1, 2)], [1, 2, 0])
+
+    def test_cant_afford_the_fare(self):
+        self.game.boards[0].square(5).set_owner("Bob")
+        self.alice.money = 120  # enough for the £25 rent, not the £150 fare
+        self.game.roll("Alice", dice=(2, 3))
+        self.assertEqual(self.alice.position, Position(0, 5))
+        self.assertEqual(self.alice.money, 95)
+        self.assertEqual(self.game.current_player.name, "Bob")
+
+    def test_summary_says_automatic(self):
+        rows = {r["label"]: r["value"] for r in self.game.ruleset_summary()}
+        self.assertTrue(rows["Travel"].startswith("Automatic"))
+
+
+class RecursopolyAmstTests(unittest.TestCase):
+    def setUp(self):
+        self.game = make_game(players=("Alice", "Bob"), ruleset="recursopoly_amst")
+        self.game.start("Alice")
+        self.alice = self.game.get_player("Alice")
+
+    def test_amst_rules_on_three_boards(self):
+        self.assertEqual([self.game.boards[b].name for b in (0, 1, 2)],
+                         ["AMST Board", "The VIP Ring", "The Inner Sanctum"])
+        self.assertEqual(self.alice.money, 2000)
+        self.assertEqual(self.game._rule("max_hotels_per_property"), 3)
+        self.assertTrue(self.game._rule("must_lap_before_buying"))
+        self.assertEqual([len(self.game.boards[b].pools()) for b in (0, 1, 2)], [1, 1, 1])
+
+    def test_each_board_has_its_own_pot(self):
+        self.alice.position = Position(1, 1)
+        self.game.roll("Alice", dice=(1, 2))  # The VIP Ring's Bottle Service tax
+        self.assertEqual(self.game.boards[1].square(12).pot, 250)
+        self.assertEqual(self.game.boards[0].square(15).pot, 0)
+
+    def test_station_offers_tickets(self):
+        self.alice.laps = 1
+        self.game.boards[0].square(5).set_owner("Bob")
+        result = self.game.roll("Alice", dice=(2, 3))  # Central Station
+        self.assertEqual(result["decision"]["type"], "travel")
+        self.assertEqual({o["price"] for o in result["decision"]["options"]}, {200, 400})
+
+
 if __name__ == "__main__":
     unittest.main()
